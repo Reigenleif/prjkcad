@@ -9,3 +9,5 @@ temp/
 *.db
 *.sqlite3
 *.log
+
+debug_outputs/
