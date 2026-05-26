@@ -11,3 +11,5 @@ temp/
 *.log
 
 debug_outputs/
+
+.vscode/
