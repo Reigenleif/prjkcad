@@ -1,0 +1,93 @@
+{
+    "final_name": "Cube with a corner cut out",
+    "final_shape": "A cube with a corner cut out, resulting in a square base and a triangular top. The cut-out corner is rounded.",
+    "parts": {
+        "part_1": {
+            "coordinate_system": {
+                "Euler Angles": [
+                    0.0,
+                    0.0,
+                    0.0
+                ],
+                "Translation Vector": [
+                    0.0,
+                    0.0,
+                    0.0
+                ]
+            },
+            "sketch": {
+                "face_1": {
+                    "loop_1": {
+                        "line_1": {
+                            "Start Point": [
+                                0.0,
+                                0.0
+                            ],
+                            "End Point": [
+                                0.75,
+                                0.0
+                            ]
+                        },
+                        "line_2": {
+                            "Start Point": [
+                                0.75,
+                                0.0
+                            ],
+                            "End Point": [
+                                0.75,
+                                0.75
+                            ]
+                        },
+                        "line_3": {
+                            "Start Point": [
+                                0.75,
+                                0.75
+                            ],
+                            "End Point": [
+                                0.075,
+                                0.75
+                            ]
+                        },
+                        "arc_1": {
+                            "Start Point": [
+                                0.075,
+                                0.75
+                            ],
+                            "Mid Point": [
+                                0.053,
+                                0.697
+                            ],
+                            "End Point": [
+                                0.0,
+                                0.675
+                            ]
+                        },
+                        "line_4": {
+                            "Start Point": [
+                                0.0,
+                                0.675
+                            ],
+                            "End Point": [
+                                0.0,
+                                0.0
+                            ]
+                        }
+                    }
+                }
+            },
+            "extrusion": {
+                "extrude_depth_towards_normal": 0.0375,
+                "extrude_depth_opposite_normal": 0.0,
+                "sketch_scale": 0.75,
+                "operation": "NewBodyFeatureOperation"
+            },
+            "description": {
+                "name": "Cube with a corner cut out",
+                "shape": "A cube with a corner cut out, resulting in a square base and a triangular top. The cut-out corner is rounded.",
+                "length": 0.75,
+                "width": 0.75,
+                "height": 0.037500000000000006
+            }
+        }
+    }
+}
