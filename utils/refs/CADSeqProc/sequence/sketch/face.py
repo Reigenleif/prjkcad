@@ -5,10 +5,10 @@ sys.path.append("/".join(os.path.abspath(__file__).split("/")[:-4]))
 
 
 import numpy as np
-from CadSeqProc.utility.logger import CLGLogger
-from CadSeqProc.utility.macro import *
+from utils.refs.CADSeqProc.utility.logger import CLGLogger
+from utils.refs.CADSeqProc.utility.macro import *
 from .loop import LoopSequence
-from CadSeqProc.utility.utils import (
+from utils.refs.CADSeqProc.utility.utils import (
     random_sample_points,
     perform_op,
     split_array,

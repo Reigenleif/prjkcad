@@ -15,13 +15,13 @@ from concurrent.futures import (
 
 from rich import print
 from tqdm import tqdm
-from CadSeqProc.utility.decorator import measure_performance
-from CadSeqProc.utility.logger import CLGLogger
+from utils.refs.CADSeqProc.utility.decorator import measure_performance
+from utils.refs.CADSeqProc.utility.logger import CLGLogger
 import torch
 from loguru import logger
 import numpy as np
-from CadSeqProc.utility.macro import *
-from CadSeqProc.utility.utils import get_files_scan, ensure_dir
+from utils.refs.CADSeqProc.utility.macro import *
+from utils.refs.CADSeqProc.utility.utils import get_files_scan, ensure_dir
 import argparse
 import multiprocessing
 import json

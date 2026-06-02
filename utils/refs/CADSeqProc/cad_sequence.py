@@ -9,12 +9,12 @@ sys.path.append("/".join(os.path.abspath(__file__).split("/")[:-2]))
 
 import numpy as np
 import argparse
-from CadSeqProc.sequence.transformation.extrude_sequence import ExtrudeSequence
-from CadSeqProc.sequence.sketch.sketchsequence import SketchSequence
-from CadSeqProc.utility.logger import CLGLogger
-from CadSeqProc.utility.macro import *
-from CadSeqProc.utility.decorator import *
-from CadSeqProc.utility.utils import (
+from utils.refs.CADSeqProc.sequence.transformation.extrude_sequence import ExtrudeSequence
+from utils.refs.CADSeqProc.sequence.sketch.sketchsequence import SketchSequence
+from utils.refs.CADSeqProc.utility.logger import CLGLogger
+from utils.refs.CADSeqProc.utility.macro import *
+from utils.refs.CADSeqProc.utility.decorator import *
+from utils.refs.CADSeqProc.utility.utils import (
     add_axis,
     add_padding,
     brep2mesh,
@@ -44,7 +44,7 @@ import signal
 from contextlib import contextmanager
 import copy
 from OCC.Core import BRepAdaptor
-from CadSeqProc.OCCUtils.Topology import Topo
+from utils.refs.CADSeqProc.OCCUtils.Topology import Topo
 from OCC.Core.TopExp import TopExp_Explorer
 from OCC.Core.TopAbs import TopAbs_FACE
 import torch

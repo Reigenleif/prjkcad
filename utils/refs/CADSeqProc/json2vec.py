@@ -17,13 +17,13 @@ import time
 import traceback
 from rich import print
 from tqdm import tqdm
-from CadSeqProc.utility.decorator import measure_performance
-from CadSeqProc.utility.logger import CLGLogger
+from utils.refs.CADSeqProc.utility.decorator import measure_performance
+from utils.refs.CADSeqProc.utility.logger import CLGLogger
 import torch
 from loguru import logger
 import numpy as np
-from CadSeqProc.utility.macro import *
-from CadSeqProc.utility.utils import (
+from utils.refs.CADSeqProc.utility.macro import *
+from utils.refs.CADSeqProc.utility.utils import (
     generate_attention_mask,
     ensure_dir,
     hash_map,
@@ -33,7 +33,7 @@ from cad_sequence import CADSequence
 import argparse
 import multiprocessing
 import json
-from CadSeqProc.cad_sequence import CADSequence
+from utils.refs.CADSeqProc.cad_sequence import CADSequence
 import warnings
 import shutil
 

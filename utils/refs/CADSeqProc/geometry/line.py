@@ -5,9 +5,9 @@ sys.path.append("..")
 sys.path.append("/".join(os.path.abspath(__file__).split("/")[:-3]))
 
 import numpy as np
-from CadSeqProc.utility.logger import CLGLogger
-from CadSeqProc.utility.macro import *
-from CadSeqProc.utility.utils import (
+from utils.refs.CADSeqProc.utility.logger import CLGLogger
+from utils.refs.CADSeqProc.utility.macro import *
+from utils.refs.CADSeqProc.utility.utils import (
     coord_to_pixel,
     float_round,
     create_point_from_array,
@@ -17,7 +17,7 @@ from CadSeqProc.utility.utils import (
     quantize,
     point_distance,
 )
-from CadSeqProc.geometry.curve import Curve
+from utils.refs.CADSeqProc.geometry.curve import Curve
 from rich import print
 import torch
 from loguru import logger

@@ -4,8 +4,8 @@ import sys
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.append(BASE_DIR)
 sys.path.append("..")
-from CadSeqProc.utility.logger import CLGLogger
-from CadSeqProc.utility.macro import *
+from utils.refs.CADSeqProc.utility.logger import CLGLogger
+from utils.refs.CADSeqProc.utility.macro import *
 from cad_sequence import CADSequence
 import argparse
 import json

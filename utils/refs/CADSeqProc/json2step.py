@@ -9,14 +9,14 @@ sys.path.append("..")
 from concurrent.futures import ProcessPoolExecutor, as_completed, ThreadPoolExecutor
 
 from tqdm import tqdm
-from CadSeqProc.utility.decorator import measure_performance
-from CadSeqProc.utility.logger import CLGLogger
-from CadSeqProc.utility.macro import *
-from CadSeqProc.utility.utils import get_files_scan
+from utils.refs.CADSeqProc.utility.decorator import measure_performance
+from utils.refs.CADSeqProc.utility.logger import CLGLogger
+from utils.refs.CADSeqProc.utility.macro import *
+from utils.refs.CADSeqProc.utility.utils import get_files_scan
 import argparse
 import multiprocessing
 import json
-from CadSeqProc.cad_sequence import CADSequence
+from utils.refs.CADSeqProc.cad_sequence import CADSequence
 import warnings
 import gc
 

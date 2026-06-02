@@ -8,16 +8,16 @@ sys.path.append("..")
 # Adding Python Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
-from CadSeqProc.utility.decorator import measure_performance
-from CadSeqProc.utility.logger import CLGLogger
-from CadSeqProc.utility.macro import *
-from CadSeqProc.utility.utils import ensure_dir, get_files_scan
+from utils.refs.CADSeqProc.utility.decorator import measure_performance
+from utils.refs.CADSeqProc.utility.logger import CLGLogger
+from utils.refs.CADSeqProc.utility.macro import *
+from utils.refs.CADSeqProc.utility.utils import ensure_dir, get_files_scan
 from cad_sequence import CADSequence
 import argparse
 import traceback
 # import multiprocessing
 import json
-from CadSeqProc.cad_sequence import CADSequence
+from utils.refs.CADSeqProc.cad_sequence import CADSequence
 import warnings
 
 warnings.filterwarnings("ignore")

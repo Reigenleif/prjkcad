@@ -5,8 +5,8 @@ sys.path.append("/".join(os.path.abspath(__file__).split("/")[:-4]))
 
 
 import numpy as np
-from CadSeqProc.utility.logger import CLGLogger
-from CadSeqProc.utility.utils import (
+from utils.refs.CADSeqProc.utility.logger import CLGLogger
+from utils.refs.CADSeqProc.utility.utils import (
     create_point_from_array,
     perform_op,
     random_sample_points,
@@ -15,7 +15,7 @@ from CadSeqProc.utility.utils import (
     create_matched_pair,
     create_colored_wire,
 )
-from CadSeqProc.utility.macro import *
+from utils.refs.CADSeqProc.utility.macro import *
 from rich import print
 from .face import FaceSequence, LoopSequence
 from loguru import logger

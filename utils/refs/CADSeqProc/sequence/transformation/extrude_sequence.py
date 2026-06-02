@@ -6,11 +6,11 @@ sys.path.append("/".join(os.path.abspath(__file__).split("/")[:-4]))
 
 
 import numpy as np
-from CadSeqProc.utility.logger import CLGLogger
-from CadSeqProc.utility.macro import *
-from CadSeqProc.utility.utils import dequantize_verts, int_round, quantize, float_round
+from utils.refs.CADSeqProc.utility.logger import CLGLogger
+from utils.refs.CADSeqProc.utility.macro import *
+from utils.refs.CADSeqProc.utility.utils import dequantize_verts, int_round, quantize, float_round
 from loguru import logger
-from CadSeqProc.sequence.sketch.coord_system import CoordinateSystem
+from utils.refs.CADSeqProc.sequence.sketch.coord_system import CoordinateSystem
 
 clglogger = CLGLogger().configure_logger().logger
 
