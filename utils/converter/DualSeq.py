@@ -1,3 +1,10 @@
+from __future__ import annotations
+
+import json
+import tempfile
+from functools import lru_cache
+
+
 DEFAULT_COMMANDS = {
     "COOR": ["coor_euax", "coor_euay", "coor_euaz", "coor_tx", "coor_ty", "coor_tz"],
     "FACE": [],
@@ -9,6 +16,69 @@ DEFAULT_COMMANDS = {
     "EXTRUDE_CUT": ["extrude_cut_dtn", "extrude_cut_don", "extrude_cut_scale"],
     "EXTRUDE_INTERSECT": ["extrude_intersect_dtn", "extrude_intersect_don", "extrude_intersect_scale"],
 }
+
+SPECIAL_COMMANDS = ("<SOS>", "<PAD>", "<EOS>")
+
+
+@lru_cache(maxsize=1)
+def build_dualseq_schema() -> dict[str, object]:
+    command_names = list(DEFAULT_COMMANDS.keys())
+    command_to_id = {name: index for index, name in enumerate(command_names)}
+    id_to_command = {index: name for name, index in command_to_id.items()}
+
+    arg_names: list[str] = []
+    command_to_slice: dict[str, tuple[int, int]] = {}
+    command_to_mask: dict[str, list[int]] = {}
+
+    cursor = 0
+    for command_name in command_names:
+        command_args = list(DEFAULT_COMMANDS[command_name])
+        arg_names.extend(command_args)
+        next_cursor = cursor + len(command_args)
+        command_to_slice[command_name] = (cursor, next_cursor)
+        cursor = next_cursor
+
+    arg_dim = len(arg_names)
+    for command_name in command_names:
+        start, end = command_to_slice[command_name]
+        command_to_mask[command_name] = [1 if start <= index < end else 0 for index in range(arg_dim)]
+
+    sos_id = len(command_names)
+    pad_id = sos_id + 1
+    eos_id = sos_id + 2
+
+    return {
+        "command_names": command_names,
+        "command_to_id": command_to_id,
+        "id_to_command": id_to_command,
+        "arg_names": arg_names,
+        "command_to_slice": command_to_slice,
+        "command_to_mask": command_to_mask,
+        "n_cmds": len(command_names),
+        "n_args": arg_dim,
+        "sos_id": sos_id,
+        "pad_id": pad_id,
+        "eos_id": eos_id,
+        "command_vocab_size": len(command_names) + len(SPECIAL_COMMANDS),
+    }
+
+
+def get_dualseq_schema() -> dict[str, object]:
+    return build_dualseq_schema()
+
+
+def encode_command(command: str) -> int:
+    return build_dualseq_schema()["command_to_id"][command]
+
+
+def encode_args(command: str, arg_values: dict[str, float]) -> list[float]:
+    schema = build_dualseq_schema()
+    arg_names = schema["arg_names"]
+    arg_vector = [0.0] * len(arg_names)
+    start, _ = schema["command_to_slice"][command]
+    for offset, arg_name in enumerate(DEFAULT_COMMANDS[command]):
+        arg_vector[start + offset] = float(arg_values.get(arg_name, 0.0))
+    return arg_vector
 
 class DualSeq:
     EXTRUSION_OPERATORS = {'NewBodyFeatureOperation', 
@@ -54,7 +124,7 @@ class DualSeq:
                 
                 more_cmds, more_args = self.face_to_cmd(face)
                 self.cmds.extend(more_cmds)
-                self.args.extend(more_args)\
+                self.args.extend(more_args)
             
             # EXTRUDE COMMAND
             extrusion = part["extrusion"]
@@ -167,6 +237,23 @@ class DualSeq:
 
         return "\n".join(lines)
     
+    def render_stl(self, img_path: str) -> None:
+        # save json to a temporary file
+        from utils.refs.CADSeqProc.json2stl_skt3d import process_one
+
+        with tempfile.NamedTemporaryFile(mode='w+', suffix='.json', delete=False) as tmp:
+            json.dump(self.json_object, tmp)
+            tmp_path = tmp.name
+            
+        # text2cad calls
+        args = {
+            "output_dir": img_path,
+        }
+        try :
+            process_one(tmp_path, args)
+        except Exception as e:
+            print(f"Error occurred while rendering STL: {e}")
+
     @property
     def part_count(self) -> int:
         return len(self.json_object["parts"])
