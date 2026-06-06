@@ -5,7 +5,7 @@ from typing import Any
 import torch
 from torch import nn
 
-from utils.converter.DualSeq import get_dualseq_schema
+from utils.dual_seq import get_dualseq_schema
 
 
 class DualSeqCriterion(nn.Module):
