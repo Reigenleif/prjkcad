@@ -11,14 +11,20 @@ from tqdm import tqdm
 class Text2CADLoader:
     """Load Text2CAD metadata from the CSV and attach parsed JSON payloads."""
 
-    def __init__(self, data_root: str | Path, csv_path: str | Path = "text2cad_v1.1.csv"):
+    def __init__(self, data_root: str | Path, csv_path: str | Path = "text2cad_v1.1.csv", max_samples: int | None = None):
         self.data_root = Path(data_root).expanduser().resolve()
         self.csv_path = self.data_root / Path(csv_path)
         self.failed_uids: list[str] = []
+        self.max_samples = max_samples
 
     def load_csv(self) -> pd.DataFrame:
         """Load the text2cad CSV from the configured data root."""
-        return pd.read_csv(self.csv_path)
+        print(f"Loading CSV from: {self.csv_path}")
+        if self.max_samples is not None:
+            df = pd.read_csv(self.csv_path, nrows=self.max_samples)
+        else:
+            df = pd.read_csv(self.csv_path)
+        return df
 
     def load_jsons(
         self,
@@ -30,6 +36,7 @@ class Text2CADLoader:
         if df is None:
             df = self.load_csv()
 
+        print(f"Processing {len(df)} rows to load JSON payloads...")
         if uid_column not in df.columns:
             raise KeyError(f"Missing required column: {uid_column}")
 

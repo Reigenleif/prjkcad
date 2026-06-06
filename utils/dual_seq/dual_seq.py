@@ -7,17 +7,25 @@ class DualSeq:
                            "CutFeatureOperation", 
                            "IntersectFeatureOperation"}
 
-    def __init__(self, json_object: dict, uid: str):
+    def __init__(self, 
+                 json_object: dict, 
+                 uid: str, 
+                 descriptions: dict[str, str] | None = None):
         
         # Default input format : text2cad
-        self.from_text2cad(json_object, uid)
+        self.from_text2cad(json_object, uid, descriptions)
 
-    def from_text2cad(self, json_object: dict, uid: str):
+    def from_text2cad(self, 
+                      json_object: dict, 
+                      uid: str,
+                      descriptions: dict[str, str] | None):
         self.uid = uid
         self.json_object = json_object
         self.cmds: list[str] = []
         self.args: list[dict] = []
         self.extrusion_kinds: set[str] = set()
+        
+        self.descriptions = descriptions or {}
         
         # DECODE EACH PART
         for part_name, part in json_object["parts"].items():
