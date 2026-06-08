@@ -7,6 +7,8 @@ import numpy as np
 import torch
 from tqdm import tqdm
 
+from utils.wrapper.dual_seq_cmdonly import DualSeqCMDOnlyWrapper
+
 
 def _move_to_device(batch: Any, device: torch.device):
     if isinstance(batch, Mapping):
@@ -23,7 +25,7 @@ def _move_to_device(batch: Any, device: torch.device):
 class DualSeqCMDOnlyTrainer:
     def __init__(
         self,
-        model,
+        model_wrapper: DualSeqCMDOnlyWrapper,
         criterion,
         optimizer,
         train_loader=None,
@@ -37,7 +39,8 @@ class DualSeqCMDOnlyTrainer:
         max_new_cmds: int = None,
     ):
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = model.to(self.device)
+        self.wrapper = model_wrapper.to(self.device)
+        self.model = model_wrapper.model
         self.criterion = criterion
         self.optimizer = optimizer
         self.train_loader = train_loader
@@ -56,40 +59,15 @@ class DualSeqCMDOnlyTrainer:
         return float(max(self.min_side_teacher_forcing_ratio, min(1.0, ratio)))
 
     def _forward(self, batch: Mapping[str, Any], ratio: float):
-        input_ids, cmds, attention_mask = batch
-        logits0, dec_out, enc_out =  self.model(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            decoder_input_ids=cmds if ratio > 0 else None,
-        )
-        outs = logits0
-        preds = logits0.argmax(dim=-1)
-
-        while outs.shape[1] < self.max_new_cmds:
-            # Stop at EOS
-            if (preds[:, -1] == self.model.pad_id).all():
-                break
-
-            logits, dec_out, _ = self.model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                decoder_input_ids=preds,
-                encoder_out_embeddings=enc_out,
-                decoder_out_embeddings=dec_out,
-            )
-            # Update
-            outs = torch.cat([outs, logits[:, -1:, :]], dim=1)
-            preds = torch.cat([preds, logits[:, -1:, :].argmax(dim=-1)], dim=1)
-
-        return outs, preds
-
+        return self.wrapper.forward(batch, ratio)
+    
     def _loss(self, outputs, batch):
         logits = outputs[0] if isinstance(outputs, tuple) else outputs
         return self.criterion(logits, batch[1])
 
     def train_step(self, batch: Tuple, ratio: float):
         
-        self.model.train()
+        self.wrapper.train()
         self.optimizer.zero_grad(set_to_none=True)
         
         batch = _move_to_device(batch, self.device)
@@ -98,13 +76,12 @@ class DualSeqCMDOnlyTrainer:
         # pad targets to match output length for loss computation
         if outputs.shape[1] > batch[1].shape[1]:
             pad_length = outputs.shape[1] - batch[1].shape[1]
-            pad_tensor = torch.full((batch[1].shape[0], pad_length), self.model.pad_id, device=batch[1].device, dtype=batch[1].dtype)
+            pad_tensor = torch.full((batch[1].shape[0], pad_length), self.wrapper.model.pad_id, device=batch[1].device, dtype=batch[1].dtype)
             batch = (batch[0], torch.cat([batch[1], pad_tensor], dim=1), batch[2])
         
         loss = self._loss(outputs, batch)
         loss.backward()
-        
-        torch.nn.utils.clip_grad_norm_(self.model.parameters(), self.max_grad_norm)
+        torch.nn.utils.clip_grad_norm_(self.wrapper.model.parameters(), self.max_grad_norm)
         self.optimizer.step()
         return {"loss": float(loss.detach().cpu().item())}
 
@@ -113,7 +90,7 @@ class DualSeqCMDOnlyTrainer:
         metrics = {}
         
         # loss and inference
-        self.model.eval()
+        self.wrapper.eval()
         batch = _move_to_device(batch, self.device)
         outputs, preds = self._forward(batch, ratio=1.0)
         loss = self._loss(outputs, batch)
