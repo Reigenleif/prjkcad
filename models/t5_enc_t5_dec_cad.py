@@ -42,15 +42,12 @@ class T5EncT5DecCAD(nn.Module):
         self,
         t5_encoder: T5EncoderModel,
         t5_decoder,
-        embedding,
         n_cmds: int,
         side_encoder_heads: int = 8,
         side_encoder_layers: int = 6,
         max_new_cmds: int = 1024,
     ):
         super().__init__()
-
-        self.embedding  = embedding
         self.encoder = t5_encoder
         self.decoder = t5_decoder
         self.cmd_vocab_size = n_cmds + 2 # 1 for SOS, 1 for PAD (EOS is same as PAD)
