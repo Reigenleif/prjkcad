@@ -4,31 +4,28 @@ import torch
 from torch import nn
 from transformers import T5EncoderModel
 
-class CADCmdSideEncoder(nn.Module) :
+
+class CADCmdSideEmbedding(nn.Module) :
     """
     Encodes command sequence to a d_model dimensional representation using a Transformer Encoder.
     """
     def __init__(self,
                  n_cmds: int,
                 d_model: int = 512,
-                n_heads: int = 8,
-                n_layers: int = 6,
                 max_len: int = 1024):
-        
+    
         super().__init__()
-        self.cmd_embedding = nn.Embedding(n_cmds + 3, d_model)
-        encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=n_heads)
-        self.transformer_encoder = nn.TransformerEncoder(encoder_layer, num_layers=n_layers)
+        self.cmd_embedding = nn.Embedding(n_cmds + 2, d_model) # +2 for SOS and PAD
         self.pos_embedding = nn.Embedding(max_len, d_model)
         
-    def forward(self, cmd_input_ids, src_key_padding_mask=None):
-        positions = torch.arange(cmd_input_ids.size(1), device=cmd_input_ids.device)
-        pos_embed = self.pos_embedding(positions)[None, :, :]
-        cmd_embed = self.cmd_embedding(cmd_input_ids) + pos_embed
-        cmd_embed = cmd_embed.transpose(0, 1)
-        encoded_cmds = self.transformer_encoder(cmd_embed, src_key_padding_mask=src_key_padding_mask)
-        return encoded_cmds.transpose(0, 1)
-    
+        
+    def forward(self, cmd_input_ids) :
+        seq_len = cmd_input_ids.size(1)
+        positions = torch.arange(seq_len, device=cmd_input_ids.device).unsqueeze(0)
+        cmd_embeds = self.cmd_embedding(cmd_input_ids)
+        pos_embeds = self.pos_embedding(positions)
+        return cmd_embeds + pos_embeds
+        
       
 
 class T5EncT5DecCAD(nn.Module):
@@ -62,12 +59,17 @@ class T5EncT5DecCAD(nn.Module):
         # Extract d_model from the T5 encoder config
         d_model = t5_encoder.config.d_model
         
-        # CAD side encoder
-        self.side_encoder = CADCmdSideEncoder(
+        # CAD side embedding
+        self.side_embedding = CADCmdSideEmbedding(
             n_cmds=n_cmds,
             d_model=d_model, 
-            n_heads=side_encoder_heads, 
-            n_layers=side_encoder_layers)
+            max_len=max_new_cmds
+        )
+        
+        # Replace decoder's emebdding with side embedding
+        self.decoder.set_input_embeddings(self.side_embedding)
+        
+        
         # Prediction heads
         
         self.cmd_head = nn.Linear(d_model, self.cmd_vocab_size)
@@ -88,27 +90,21 @@ class T5EncT5DecCAD(nn.Module):
         decoder_out_embeddings=None,
         encoder_out_embeddings=None,
     ):
+        
         # PATH 1 : encoder out already computed and passed in
-        if encoder_out_embeddings is not None and decoder_input_ids is not None:
-            encoder_hidden_states = encoder_out_embeddings  # (B, T_enc, d)
-
-            side_encoded_cmds = self.side_encoder(
-                decoder_input_ids,
-                src_key_padding_mask=(decoder_input_ids == self.pad_id)
-            )  # (B, T_dec, d)
-            
-            combined_hidden_states = encoder_hidden_states + side_encoded_cmds
+        if encoder_out_embeddings is not None :
             
             # Decode
             decoder_outputs = self.decoder(
                 inputs_embeds=decoder_out_embeddings,
-                encoder_hidden_states=combined_hidden_states
+                encoder_hidden_states=encoder_out_embeddings,
+                encoder_attention_mask=attention_mask,
             )
 
             decoder_hidden_states = decoder_outputs.last_hidden_state  # (B, T_dec, d)
             cmd_logits = self.cmd_head(decoder_hidden_states)
             
-            return cmd_logits, decoder_hidden_states, encoder_hidden_states
+            return cmd_logits, decoder_hidden_states, encoder_out_embeddings
         
         
         # PATH 2 : encoder out not yet computed
