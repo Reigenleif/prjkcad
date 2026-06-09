@@ -66,7 +66,39 @@ def create_cmdonly_data_loader(dual_seqs: list[DualSeq],
                        description_level: str = "abstract", 
                        batch_size: int = 32, 
                        num_workers: int = 4,
+                       val_ratio: float = 0,
                        shuffle: bool = True) -> DataLoader:
+    """Creates a DataLoader for the CMDOnly dataset.
+    If val_ratio > 0, it will split the dataset into train and validation sets and return two DataLoaders.
+    else, it will return a single DataLoader for the entire dataset.
+    """
+    
+    
+    if val_ratio > 0 :
+        # Shuffle and split the dataset into train and validation sets
+        total_size = len(dual_seqs)
+        val_size = int(total_size * val_ratio)
+        train_size = total_size - val_size
+        train_dual_seqs, val_dual_seqs = torch.utils.data.random_split(dual_seqs, [train_size, val_size])
+    
+        train_dataset = DualSeqCmdonlyDataset(train_dual_seqs, description_tokenizer, description_level)
+        val_dataset = DualSeqCmdonlyDataset(val_dual_seqs, description_tokenizer, description_level)
+        
+        dualseq_schema = get_dualseq_schema()
+        train_loader = DataLoader(train_dataset, 
+                      batch_size=batch_size, 
+                      shuffle=shuffle, 
+                      num_workers=num_workers,
+                      collate_fn=lambda batch: _collate_fn(batch, description_tokenizer, cmd_tokenizer=lambda cmds: _command_tokenizer(cmds, dualseq_schema)))
+        val_loader = DataLoader(val_dataset, 
+                      batch_size=batch_size, 
+                      shuffle=shuffle, 
+                      num_workers=num_workers,
+                      collate_fn=lambda batch: _collate_fn(batch, description_tokenizer, cmd_tokenizer=lambda cmds: _command_tokenizer(cmds, dualseq_schema)))
+        return train_loader, val_loader
+                           
+                                
+    
     dataset = DualSeqCmdonlyDataset(dual_seqs, description_tokenizer, description_level)
     
     dualseq_schema = get_dualseq_schema()
