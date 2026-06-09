@@ -50,7 +50,7 @@ class DualSeqCMDOnlyTrainer:
         self.side_teacher_forcing_decay = side_teacher_forcing_decay
         self.min_side_teacher_forcing_ratio = min_side_teacher_forcing_ratio
         self.schedule_fn = schedule_fn
-        self.max_new_cmds = max_new_cmds if max_new_cmds is not None else model.max_new_cmds
+        self.max_new_cmds = max_new_cmds if max_new_cmds is not None else self.model.max_new_cmds
 
     def _scheduled_ratio(self, epoch: int) -> float:
         if self.schedule_fn is not None:
