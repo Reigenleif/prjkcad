@@ -10,7 +10,7 @@ class DualSeqCMDOnlyWrapper(torch.nn.Module):
     """A wrapper for the DualSeqCMDOnly model for inference and training"""
     
     def __init__(self, 
-                 model:T5EncT5DecCAD,
+                 model: torch.nn.Module,
                  text_tokenizer,
                  device = "cuda" if torch.cuda.is_available() else "cpu"
     ):
@@ -21,36 +21,58 @@ class DualSeqCMDOnlyWrapper(torch.nn.Module):
 
         self.max_new_cmds = model.max_new_cmds
 
-    def forward(self, batch: Mapping[str, Any], ratio: float):
+    def forward(self, batch, is_teacher_forcing: bool = False):
         """
         Forward pass for both training and inference with autoregressive style.
         """
 
         input_ids, cmds, attention_mask = batch
-        logits0, dec_out, enc_out =  self.model(
+        device = input_ids.device
+        B = input_ids.size(0)
+        
+        _, enc_out = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
-            decoder_input_ids=cmds if ratio > 0 else None,
         )
-        outs = logits0
-        preds = logits0.argmax(dim=-1)
+        
+        if is_teacher_forcing:
+            # Build decoder inputs: [SOS, c0, c1, c2, ...]
+            sos = torch.full((B, 1), self.model.sos_id, device=device, dtype=cmds.dtype)
+            decoder_input_ids = torch.cat([sos, cmds[:, :-1]], dim=1)
 
-        while outs.shape[1] < self.max_new_cmds:
-            # Stop at EOS
-            if (preds[:, -1] == self.model.pad_id).all():
-                break
+            logits, _ = self.model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                decoder_input_ids=decoder_input_ids,
+                encoder_out_embeddings=enc_out,
+            )
 
-            logits, dec_out, _ = self.model(
+            preds = logits.argmax(dim=-1)
+            return logits, preds
+        
+        # Autoregressive generation (non-teacher forcing, greedy decoding)
+        preds = torch.full((B, 1), self.model.sos_id, device=device, dtype=torch.long)
+        outs = []
+
+        for _ in range(self.max_new_cmds):
+            logits, _ = self.model(
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 decoder_input_ids=preds,
                 encoder_out_embeddings=enc_out,
-                decoder_out_embeddings=dec_out,
             )
-            # Update
-            outs = torch.cat([outs, logits[:, -1:, :]], dim=1)
-            preds = torch.cat([preds, logits[:, -1:, :].argmax(dim=-1)], dim=1)
 
+            next_logits = logits[:, -1:, :]                 # (B, 1, V)
+            next_token = next_logits.argmax(dim=-1)         # (B, 1)
+
+            outs.append(next_logits)
+            preds = torch.cat([preds, next_token], dim=1)
+
+            # stop if all sequences hit EOS
+            if (next_token.squeeze(-1) == self.model.eos_id).all():
+                break
+
+        outs = torch.cat(outs, dim=1) if outs else torch.empty(0, device=device)
         return outs, preds
     
     @torch.no_grad()
@@ -70,7 +92,7 @@ class DualSeqCMDOnlyWrapper(torch.nn.Module):
         input_ids = torch.as_tensor(self.text_tokenizer(input_text)['input_ids'], dtype=torch.long).unsqueeze(0).to(next(self.model.parameters()).device)
         attention_mask = torch.ones_like(input_ids)
         batch = (input_ids, None, attention_mask)
-        logits, preds = self.forward(batch, ratio=0.0)
+        logits, preds = self.forward(batch)
         
         # Convert predicted token ids to command names
         id_to_command = {v: k for k, v in self.dual_seq_schema["command_to_id"].items()}
@@ -96,40 +118,38 @@ class DualSeqCMDOnlyWrapper(torch.nn.Module):
 
     @classmethod
     def from_pretrained(cls, 
-                        folder_path, 
-                        pretrained_model_name, 
+                        model_cls,
+                        pretrained_model_path, 
+                        seq2seq_model_name="t5-small", 
                         device="cuda" if torch.cuda.is_available() else "cpu", 
-                        model_config: Mapping[str, Any] = None):
+                        model_kwargs: dict[str, Any] = None):
         """
         Loads model from the specified folder path and pretrained model name.
         """
         
         
-        pretrained_model = AutoModelForSeq2SeqLM.from_pretrained(pretrained_model_name)
-        pretrained_tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
+        hf_model = AutoModelForSeq2SeqLM.from_pretrained(seq2seq_model_name)
+        hf_tokenizer = AutoTokenizer.from_pretrained(seq2seq_model_name)
         
         # Extract the encoder and decoder from the pretrained model
-        encoder = pretrained_model.get_encoder()
-        decoder = pretrained_model.get_decoder()
+        encoder = hf_model.get_encoder()
+        decoder = hf_model.get_decoder()
         
-        # Initialize the T5EncT5DecCAD model with the pretrained encoder and decoder
-        model = T5EncT5DecCAD(
-            t5_encoder=encoder,
-            t5_decoder=decoder,
-            n_cmds=len(get_dualseq_schema()["command_to_id"]),
-            **(model_config or {})
+        # Initialize the model with the pretrained encoder and decoder
+        model: torch.nn.Module = model_cls(
+            **(model_kwargs or {})
         )
         
-        text_tokenizer = pretrained_tokenizer
+        text_tokenizer = hf_tokenizer
         
         # Load the saved state dict
-        state_dict = torch.load(os.path.join(folder_path, "model.pt"), map_location="cpu")
+        state_dict = torch.load(pretrained_model_path, map_location="cpu")
         model.load_state_dict(state_dict)
         
         wrapper = cls(model=model, text_tokenizer=text_tokenizer)
         wrapper.to(device)
     
-        print(f"Model loaded from {folder_path}")
+        print(f"Model loaded from {pretrained_model_path}")
         return wrapper
         
     def train(self, mode=True):

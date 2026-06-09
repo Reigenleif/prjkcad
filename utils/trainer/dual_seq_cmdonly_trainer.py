@@ -32,9 +32,9 @@ class DualSeqCMDOnlyTrainer:
         val_loader=None,
         device: torch.device | None = None,
         max_grad_norm: float = 1.0,
-        side_teacher_forcing_ratio: float = 1.0,
-        side_teacher_forcing_decay: float = 1.0,
-        min_side_teacher_forcing_ratio: float = 0.0,
+        teacher_forcing_ratio: float = 1.0,
+        teacher_forcing_decay: float = 1.0,
+        min_teacher_forcing_ratio: float = 0.0,
         schedule_fn: Callable[[int], float] | None = None,
         max_new_cmds: int = None,
     ):
@@ -46,21 +46,22 @@ class DualSeqCMDOnlyTrainer:
         self.train_loader = train_loader
         self.val_loader = val_loader
         self.max_grad_norm = max_grad_norm
-        self.side_teacher_forcing_ratio = side_teacher_forcing_ratio
-        self.side_teacher_forcing_decay = side_teacher_forcing_decay
-        self.min_side_teacher_forcing_ratio = min_side_teacher_forcing_ratio
+        self.teacher_forcing_ratio = teacher_forcing_ratio
+        self.teacher_forcing_decay = teacher_forcing_decay
+        self.min_teacher_forcing_ratio = min_teacher_forcing_ratio
         self.schedule_fn = schedule_fn
         self.max_new_cmds = max_new_cmds if max_new_cmds is not None else self.model.max_new_cmds
 
     def _scheduled_ratio(self, epoch: int) -> float:
         if self.schedule_fn is not None:
             return float(self.schedule_fn(epoch))
-        ratio = self.side_teacher_forcing_ratio * (self.side_teacher_forcing_decay ** epoch)
-        return float(max(self.min_side_teacher_forcing_ratio, min(1.0, ratio)))
+        ratio = self.teacher_forcing_ratio * (self.teacher_forcing_decay ** epoch)
+        return float(max(self.min_teacher_forcing_ratio, min(1.0, ratio)))
 
     def _forward(self, batch: Mapping[str, Any], ratio: float):
-        return self.wrapper.forward(batch, ratio)
-    
+        is_teacher_forcing = np.random.rand() < ratio
+        return self.wrapper.forward(batch, is_teacher_forcing=is_teacher_forcing)
+
     def _loss(self, outputs, batch):
         logits = outputs[0] if isinstance(outputs, tuple) else outputs
         return self.criterion(logits, batch[1])
