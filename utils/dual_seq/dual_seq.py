@@ -1,5 +1,7 @@
 import json
 import tempfile
+from tqdm import tqdm
+import pandas as pd
 
 class DualSeq:
     EXTRUSION_OPERATORS = {"NewBodyFeatureOperation", 
@@ -121,6 +123,34 @@ class DualSeq:
     def from_cadfusion(self, cadfusion_string: str, uid: str):
         # TODO : Implement this for CADFusion data format
         pass
+    
+    
+    @classmethod
+    def from_text2cad_df(cls, df:pd.DataFrame) :
+        dual_seqs = []
+        success_count = 0
+        for i, row in tqdm(df.iterrows(), total=len(df)):
+            try :
+                json_object = row["json_target"]
+                descriptions = {
+                    "abstract": row["abstract"],
+                    "beginner": row["beginner"],
+                    "intermediate": row["intermediate"],
+                    "expert": row["expert"],
+                }
+                dual_seq = cls(json_object,
+                                uid=row["uid"],
+                                descriptions=descriptions)
+                success_count += 1
+                dual_seqs.append(dual_seq)
+                
+            except Exception as e:
+                print(f"Error at index {i}: {e}")
+
+        if success_count < len(df):
+            print(f"Successfully created {success_count}/{len(df)} DualSeq instances.")
+        return dual_seqs
+        
 
     def __str__(self) -> str:
         rows = [("cmd", "args"), *[(str(command), str(arg)) for command, arg in zip(self.cmds, self.args)]]
