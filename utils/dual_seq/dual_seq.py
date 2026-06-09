@@ -126,7 +126,7 @@ class DualSeq:
     
     
     @classmethod
-    def from_text2cad_df(cls, df:pd.DataFrame) :
+    def from_text2cad_df(cls, df:pd.DataFrame, max_len: int = None) :
         dual_seqs = []
         success_count = 0
         for i, row in tqdm(df.iterrows(), total=len(df)):
@@ -141,6 +141,8 @@ class DualSeq:
                 dual_seq = cls(json_object,
                                 uid=row["uid"],
                                 descriptions=descriptions)
+                if max_len is not None and len(dual_seq) > max_len:
+                    continue
                 success_count += 1
                 dual_seqs.append(dual_seq)
                 
@@ -159,6 +161,9 @@ class DualSeq:
         lines = [f"{rows[0][0].ljust(col1_w)} | {rows[0][1].ljust(col2_w)}", f"{'-' * col1_w}-+-{'-' * col2_w}"]
         lines.extend(f"{command.ljust(col1_w)} | {arg.ljust(col2_w)}" for command, arg in rows[1:])
         return "\n".join(lines)
+    
+    def __len__(self) -> int:
+        return len(self.cmds)
 
     def render_stl(self, img_path: str) -> None:
         from utils.refs.CADSeqProc.json2stl_skt3d import process_one

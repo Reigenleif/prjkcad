@@ -35,7 +35,7 @@ def build_dualseq_schema() -> dict[str, object]:
         command_to_mask[command_name] = [1 if start <= index < end else 0 for index in range(arg_dim)]
     sos_id = 1
     pad_id = 0
-    eos_id = 0 # set to be same as pad_id
+    eos_id = 2
     return {"command_names": command_names, 
             "command_to_id": command_to_id, 
             "id_to_command": {index: name for name, index in command_to_id.items()}, 
@@ -43,6 +43,7 @@ def build_dualseq_schema() -> dict[str, object]:
             "command_to_slice": command_to_slice, 
             "command_to_mask": command_to_mask, 
             "n_cmds": len(command_names), 
+            "n_tokens": len(command_names) + 2,
             "n_args": arg_dim, 
             "sos_id": sos_id, 
             "pad_id": pad_id, 
