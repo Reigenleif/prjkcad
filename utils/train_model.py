@@ -1,6 +1,7 @@
 import os
 from typing import Union, Dict, Any
 import yaml
+import random
 
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -58,6 +59,11 @@ def train_model(config: Config | str,
         df = loader.load()
         
         dual_seqs = DualSeq.from_text2cad_df(df)
+        
+        if config["data"]["sample_ratio"] :
+            sample_size = int(len(dual_seqs) * config["data"]["sample_ratio"])
+            dual_seqs = random.sample(dual_seqs, sample_size)
+            print(f"Sampled {sample_size} instances from the dataset based on the specified sample ratio of {config['data']['sample_ratio']}.")
         
         if USE_VAL :
             train_loader, val_loader = create_cmdonly_data_loader(dual_seqs,
