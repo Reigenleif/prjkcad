@@ -42,8 +42,7 @@ class DualSeq:
                               "coor_tx": translation_vector[0], 
                               "coor_ty": translation_vector[1], 
                               "coor_tz": translation_vector[2]})
-            
-            
+        
             # FACES
             # DECODE FOR EACH FACE
             for face_name, face in part["sketch"].items():
@@ -132,12 +131,15 @@ class DualSeq:
         for i, row in tqdm(df.iterrows(), total=len(df)):
             try :
                 json_object = row["json_target"]
-                descriptions = {
-                    "abstract": row["abstract"],
-                    "beginner": row["beginner"],
-                    "intermediate": row["intermediate"],
-                    "expert": row["expert"],
-                }
+                # Skip this row if any description field is empty or missing
+                desc_keys = ["abstract", "beginner", "intermediate", "expert"]
+                try:
+                    desc_vals = {k: row[k] for k in desc_keys}
+                except Exception:
+                    continue
+                if any(pd.isna(v) or str(v).strip() == "" for v in desc_vals.values()):
+                    continue
+                descriptions = desc_vals
                 dual_seq = cls(json_object,
                                 uid=row["uid"],
                                 descriptions=descriptions)
