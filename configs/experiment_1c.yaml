@@ -1,3 +1,4 @@
+# Experiment 1C to train T5EncT5DecCAD at medium LR with a medium portion of data, starting from the checkpoint of experiment 1B.
 run_name: experiment_1c
 data:
     data_root: data/text2cad
@@ -17,7 +18,7 @@ tokenizer:
 model:
     source: local
     cls: T5EncT5DecCAD
-    is_pretrained: true
+    is_pretrained: false
     kwargs:
         pretrained_model_name: t5-small
         max_new_cmds: 84
@@ -33,11 +34,11 @@ trainer:
         kwargs:
             lambda_after_pad: 3
             lambda_overgen: 3
-    epochs: 10
+    epochs: 20
     max_new_cmds: 84
     kwargs:
-        teacher_forcing_ratio: 0
+        teacher_forcing_ratio: 1.0
         max_grad_norm: 1.0
 
-pretrained_path: out/experiment_1b/checkpoint.pt
+pretrained_path: out/experiment_1c/checkpoint.pt
 random_seed: 42
