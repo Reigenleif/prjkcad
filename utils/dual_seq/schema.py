@@ -8,6 +8,7 @@ DEFAULT_COMMANDS = {
     "LOOP": [],
     "LINE": ["line_sx", "line_sy", "line_ex", "line_ey"],
     "CIRCLE": ["circle_cx", "circle_cy", "circle_r"],
+    "ARC": ["arc_sx", "arc_sy", "arc_mx", "arc_my", "arc_ex", "arc_ey"],
     "EXTRUDE_NEW": ["extrude_new_dtn", "extrude_new_don", "extrude_new_scale"],
     "EXTRUDE_JOIN": ["extrude_join_dtn", "extrude_join_don", "extrude_join_scale"],
     "EXTRUDE_CUT": ["extrude_cut_dtn", "extrude_cut_don", "extrude_cut_scale"],

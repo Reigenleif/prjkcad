@@ -3,6 +3,8 @@ import tempfile
 from tqdm import tqdm
 import pandas as pd
 
+from .schema import get_dualseq_schema
+
 class DualSeq:
     EXTRUSION_OPERATORS = {"NewBodyFeatureOperation", 
                            "JoinFeatureOperation", 
@@ -84,6 +86,18 @@ class DualSeq:
                     center = segment["Center"]
                     cmds.append("CIRCLE")
                     args.append({"circle_cx": center[0], "circle_cy": center[1], "circle_r": segment["Radius"]})
+
+                elif str(segment_name).startswith("arc"):
+                    start_point = segment["Start Point"]
+                    mid_point = segment["Mid Point"]
+                    end_point = segment["End Point"]
+                    cmds.append("ARC")
+                    args.append({"arc_sx": start_point[0], "arc_sy": start_point[1], 
+                                "arc_mx": mid_point[0], "arc_my": mid_point[1],
+                                "arc_ex": end_point[0], "arc_ey": end_point[1]})
+                else:
+                    raise ValueError(f"Unsupported segment type: {segment_name}")
+                
         return cmds, args
 
     def extrusion_to_cmd(self, extrusion: dict) -> tuple[list[str], list[dict]]:
@@ -181,3 +195,8 @@ class DualSeq:
     @property
     def part_count(self) -> int:
         return len(self.json_object["parts"])
+    
+    @staticmethod
+    def id_to_cmds(id_seq: list[int]) -> list[str]:
+        id_to_command = get_dualseq_schema()["id_to_command"]
+        return [id_to_command.get(id, "<UNK>") for id in id_seq]
