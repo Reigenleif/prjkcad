@@ -99,7 +99,6 @@ class DualSeqCMDOnlyTrainer:
         # loss and inference
         self.wrapper.eval()
         batch = _move_to_device(batch, self.device)
-        print(f"Eval Batch: {batch[1]}")
         outputs, preds = self._forward(batch, ratio=1.0)
         loss = self._loss(outputs, batch)
         metrics = {"loss": float(loss.detach().cpu().item())}
@@ -119,8 +118,6 @@ class DualSeqCMDOnlyTrainer:
 
         cmd_only_metrics = {key: float(np.mean([metric[key] for metric in cmd_only_metric_list])) for key in cmd_only_metric_list[0].keys()}
         metrics.update({k : v for k, v in cmd_only_metrics.items()})
-        for m in metrics:
-            print(f"{m}: {metrics[m]:.4f}")
         return metrics
 
     def fit(self, epochs: int, verbose: bool = True):
