@@ -161,3 +161,7 @@ class DualSeqCMDOnlyWrapper(torch.nn.Module):
     def to(self, device):
         self.model.to(device)
         return self
+    
+    def half(self):
+        self.model.half()
+        return self

@@ -37,6 +37,7 @@ class DualSeqCMDOnlyTrainer:
         min_teacher_forcing_ratio: float = 0.0,
         schedule_fn: Callable[[int], float] | None = None,
         max_new_cmds: int = None,
+        quant_type: str | None = None,
     ):
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.wrapper = model_wrapper.to(self.device)
@@ -51,6 +52,11 @@ class DualSeqCMDOnlyTrainer:
         self.min_teacher_forcing_ratio = min_teacher_forcing_ratio
         self.schedule_fn = schedule_fn
         self.max_new_cmds = max_new_cmds if max_new_cmds is not None else self.model.max_new_cmds
+
+        quant_type = quant_type.lower() if quant_type is not None else None
+        if quant_type == "fp16":
+            self.wrapper.model.half()
+        self.quant_type = quant_type
 
     def _scheduled_ratio(self, epoch: int) -> float:
         if self.schedule_fn is not None:
@@ -113,6 +119,18 @@ class DualSeqCMDOnlyTrainer:
         return metrics
 
     def fit(self, epochs: int, verbose: bool = True):
+        init_str = f"Starting training for {epochs} epochs"
+        if self.quant_type is not None:
+            init_str += f" with quantization: {self.quant_type}"
+        
+        try:
+            model_param_cnt = sum(p.numel() for p in self.wrapper.model.parameters())
+            init_str += f". Model parameters: {model_param_cnt:,}"
+        except Exception:
+            pass    
+        
+        print(init_str)
+        
         history: list[dict[str, float]] = []
 
         for epoch in range(epochs):
