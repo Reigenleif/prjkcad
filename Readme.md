@@ -45,15 +45,12 @@ python -m utils.train_model configs/experiment_1a.yaml
 
 Adjust the config file to set dataset paths, model selection, and training hyperparameters. See the `configs/` folder for templates.
 
-Reference
+References
 ---------
 
 Khan, M. S., Sinha, S., Sheikh, T. U., Stricker, D., Ali, S. A., & Afzal, M. Z. (2024). Text2CAD: Generating sequential CAD models from beginner-to-expert level text prompts. arXiv. https://doi.org/10.48550/arXiv.2409.17106
 
-How to cite this repo
----------------------
-
-If you use this project, please cite it as:
+<!-- If you use this project, please cite it as:
 
 Alif Amirudin (2026). prjkcad. GitHub repository: REPLACE_WITH_REPO_URL
 
@@ -71,9 +68,4 @@ BibTeX example (replace URL and year as appropriate):
 Acknowledgements
 ----------------
 
-This project builds on open research and community tools. See module headers for attributions.
-
-Contact
--------
-
-For questions, contact Alif Amirudin.
+This project builds on open research and community tools. See module headers for attributions. -->
