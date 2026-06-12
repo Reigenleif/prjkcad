@@ -186,25 +186,43 @@ def plot_progression(progression, out_path=None) :
         "val_perplexity" : {
             "val": [h["val_perplexity"] for h in progression],
         },
-        "val_accuracy" : {
-            "val": [h["val_accuracy"] for h in progression],
-        },
+        "val_performance" :{
+            "LINE_precision": [h.get("LINE_precision", 0) for h in progression],
+            "LINE_recall": [h.get("LINE_recall", 0) for h in progression],
+            "LINE_f1": [h.get("LINE_f1", 0) for h in progression],
+            "CIRCLE_precision": [h.get("CIRCLE_precision", 0) for h in progression],
+            "CIRCLE_recall": [h.get("CIRCLE_recall", 0) for h in progression],
+            "CIRCLE_f1": [h.get("CIRCLE_f1", 0) for h in progression],
+            "ARC_precision": [h.get("ARC_precision", 0) for h in progression],
+            "ARC_recall": [h.get("ARC_recall", 0) for h in progression],
+            "ARC_f1": [h.get("ARC_f1", 0) for h in progression],
+            "EXTRUDE_accuracy": [h.get("EXTRUDE_accuracy", 0) for h in progression],
+        }
     }
 
-    fig, ax = plt.subplots(3, 1, figsize=(10, 8))
+    fig, ax = plt.subplots(3, 1, 
+                           figsize=(10, 8), 
+                           gridspec_kw={"height_ratios": [1, 1, 2]})
 
     ax[0].plot(viz_keys["loss"]["train"], label="Train Loss")
     ax[0].plot(viz_keys["loss"]["val"], label="Val Loss")
     ax[0].set_title("Loss")
-    ax[0].legend()
 
     ax[1].plot(viz_keys["val_perplexity"]["val"], label="Val Perplexity")
     ax[1].set_title("Validation Perplexity")
-    ax[1].legend()
 
-    ax[2].plot(viz_keys["val_accuracy"]["val"], label="Val Accuracy")
-    ax[2].set_title("Validation Accuracy")
-    ax[2].legend()
+    ax[2].plot(viz_keys["val_performance"]["LINE_precision"], label="LINE Precision")
+    ax[2].plot(viz_keys["val_performance"]["LINE_recall"], label="LINE Recall")
+    ax[2].plot(viz_keys["val_performance"]["LINE_f1"], label="LINE F1")
+    ax[2].plot(viz_keys["val_performance"]["CIRCLE_precision"], label="CIRCLE Precision")
+    ax[2].plot(viz_keys["val_performance"]["CIRCLE_recall"], label="CIRCLE Recall")
+    ax[2].plot(viz_keys["val_performance"]["CIRCLE_f1"], label="CIRCLE F1")
+    ax[2].plot(viz_keys["val_performance"]["ARC_precision"], label="ARC Precision")
+    ax[2].plot(viz_keys["val_performance"]["ARC_recall"], label="ARC Recall")
+    ax[2].plot(viz_keys["val_performance"]["ARC_f1"], label="ARC F1")
+    ax[2].plot(viz_keys["val_performance"]["EXTRUDE_accuracy"], label="EXTRUDE Accuracy")
+    ax[2].set_title("Validation Performance Summary")
+    ax[2].legend(loc="center left", bbox_to_anchor=(1, 0.5))
 
     plt.tight_layout()
     plt.show()
