@@ -52,7 +52,7 @@ def _collate_fn(batch, description_tokenizer=None, cmd_tokenizer=None) :
     return desc_tokens, cmd_tokens, attn_mask
 
 def _command_tokenizer(cmds, dualseq_schema) :
-    tokenized_cmds = [1] # start with SOS token id
+    tokenized_cmds = []
     for cmd in cmds :
         if cmd not in dualseq_schema["command_to_id"] :
             raise ValueError(f"Unknown command: {cmd}")
