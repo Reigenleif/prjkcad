@@ -48,9 +48,7 @@ Adjust the config file to set dataset paths, model selection, and training hyper
 Reference
 ---------
 
-Khan, et al. (2024). One relevant match found online is a systematic review titled "Global insights and the impact of generative AI-ChatGPT on multidisciplinary: a systematic review and bibliometric analysis" by N. Khan and co-authors (Taylor & Francis, 2024). If this is the paper you meant, its DOI is `10.1080/09540091.2024.2353630` and the publisher page is: https://www.tandfonline.com/doi/abs/10.1080/09540091.2024.2353630
-
-- Khan, N., Koubaa, A., MK Khan, et al. (2024). Global insights and the impact of generative AI-ChatGPT on multidisciplinary: a systematic review and bibliometric analysis. Taylor & Francis. DOI: 10.1080/09540091.2024.2353630
+Khan, M. S., Sinha, S., Sheikh, T. U., Stricker, D., Ali, S. A., & Afzal, M. Z. (2024). Text2CAD: Generating sequential CAD models from beginner-to-expert level text prompts. arXiv. https://doi.org/10.48550/arXiv.2409.17106
 
 How to cite this repo
 ---------------------
