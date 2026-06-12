@@ -8,6 +8,8 @@ import torch
 from tqdm import tqdm
 
 from utils.wrapper.dual_seq_cmdonly import DualSeqCMDOnlyWrapper
+from utils.dual_seq import get_dualseq_schema
+from utils.evaluate import eval_cmd_only
 
 
 def _move_to_device(batch: Any, device: torch.device):
@@ -54,8 +56,6 @@ class DualSeqCMDOnlyTrainer:
         self.max_new_cmds = max_new_cmds if max_new_cmds is not None else self.model.max_new_cmds
 
         quant_type = quant_type.lower() if quant_type is not None else None
-        if quant_type == "fp16":
-            self.wrapper.model.half()
         self.quant_type = quant_type
 
     def _scheduled_ratio(self, epoch: int) -> float:
@@ -99,6 +99,7 @@ class DualSeqCMDOnlyTrainer:
         # loss and inference
         self.wrapper.eval()
         batch = _move_to_device(batch, self.device)
+        print(f"Eval Batch: {batch[1]}")
         outputs, preds = self._forward(batch, ratio=1.0)
         loss = self._loss(outputs, batch)
         metrics = {"loss": float(loss.detach().cpu().item())}
@@ -108,14 +109,18 @@ class DualSeqCMDOnlyTrainer:
         if loss_value is not None:
             metrics["perplexity"] = float(np.exp(loss_value))
 
-        # Token accuracy
-        targets = batch[1]
-        T = min(preds.size(1), targets.size(1))
-        preds = preds[:, :T]
-        targets = targets[:, :T]
-        correct = preds.eq(targets)
-        accuracy = correct.float().sum() / correct.numel()
-        metrics["accuracy"] = float(accuracy.detach().cpu().item())
+        # CMD level metrics
+        schema = get_dualseq_schema()['id_to_command']
+        cmd_only_metric_list = []
+        for i in range(batch[1].shape[0]):
+            pred_cmds = [schema.get(id, '<UNK>') for id in preds[i].cpu().numpy().tolist()]
+            true_cmds = [schema.get(id, '<UNK>') for id in batch[1][i].cpu().numpy().tolist()]
+            cmd_only_metric_list.append(eval_cmd_only(pred_cmds, true_cmds))
+
+        cmd_only_metrics = {key: float(np.mean([metric[key] for metric in cmd_only_metric_list])) for key in cmd_only_metric_list[0].keys()}
+        metrics.update({k : v for k, v in cmd_only_metrics.items()})
+        for m in metrics:
+            print(f"{m}: {metrics[m]:.4f}")
         return metrics
 
     def fit(self, epochs: int, verbose: bool = True):
@@ -159,4 +164,11 @@ class DualSeqCMDOnlyTrainer:
         return history
 
     def train(self, epochs: int, verbose: bool = True):
+        if self.quant_type is not None and self.device != torch.device("cuda"):
+            raise ValueError(f"Quantization with type {self.quant_type} is only supported on CUDA devices.")
+        
+        if self.quant_type == "fp16" :
+            with torch.amp.autocast("cuda", dtype=torch.float16):
+                return self.fit(epochs=epochs, verbose=verbose)
+        
         return self.fit(epochs=epochs, verbose=verbose)
