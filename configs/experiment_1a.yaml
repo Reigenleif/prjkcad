@@ -21,7 +21,7 @@ model:
     is_pretrained: false
     kwargs:
         pretrained_model_name: t5-small
-        max_new_cmds: 84
+        max_new_cmds: 128
 
 trainer:
     optimizer: AdamW
@@ -35,10 +35,11 @@ trainer:
             lambda_after_pad: 3
             lambda_overgen: 3
     epochs: 100
-    max_new_cmds: 84
+    max_new_cmds: 128
     kwargs:
         teacher_forcing_ratio: 1.0
         max_grad_norm: 1.0
+        quant_type: fp16
 
 pretrained_path: null
 random_seed: 42

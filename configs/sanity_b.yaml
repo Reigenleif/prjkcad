@@ -3,7 +3,7 @@ data:
     data_root: data/text2cad
     source_data_type: text2cad
     is_cmdonly: true
-    sample_ratio: 0.01
+    sample_ratio: 1
     eval_split_ratio: 0.2
     num_workers: 4
     description_level: abstract
@@ -36,7 +36,7 @@ trainer:
     epochs: 2
     max_new_cmds: 84
     kwargs:
-        teacher_forcing_ratio: 0.5
+        teacher_forcing_ratio: 1.0
         max_grad_norm: 1.0
 
 pretrained_path: out/sanity_a/checkpoint.pt
