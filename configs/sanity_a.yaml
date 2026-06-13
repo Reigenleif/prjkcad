@@ -38,7 +38,6 @@ trainer:
     kwargs:
         teacher_forcing_ratio: 1
         max_grad_norm: 1.0
-        quant_type: fp16
 
 pretrained_path: null
 random_seed: 42
