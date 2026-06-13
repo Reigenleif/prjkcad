@@ -175,7 +175,11 @@ def train_model(config: Config | str,
     
     return progression
 
-def plot_progression(progression, out_path=None) :
+def plot_progression(config, progression: list[dict[str, float]]):
+    if isinstance(config, str):
+        config = load_config(config)
+    out_path = f"out/{config['run_name']}/progression.png"
+    
     viz_keys = {
         "loss" : {
             "train": [h["train_loss"] for h in progression],
