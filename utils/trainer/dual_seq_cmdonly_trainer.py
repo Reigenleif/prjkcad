@@ -6,6 +6,7 @@ from typing import Any, Callable, Tuple
 import numpy as np
 import torch
 from tqdm import tqdm
+import pandas as pd
 
 from utils.wrapper.dual_seq_cmdonly import DualSeqCMDOnlyWrapper
 from utils.dual_seq import get_dualseq_schema
@@ -40,6 +41,9 @@ class DualSeqCMDOnlyTrainer:
         schedule_fn: Callable[[int], float] | None = None,
         max_new_cmds: int = None,
         quant_type: str | None = None,
+        save_folder: str | None = None,
+        best_metric_key: str = "val_avg_f1",
+        best_metric_mode: str = "max"
     ):
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.wrapper = model_wrapper.to(self.device)
@@ -57,7 +61,11 @@ class DualSeqCMDOnlyTrainer:
 
         quant_type = quant_type.lower() if quant_type is not None else None
         self.quant_type = quant_type
-
+        
+        self.save_folder = save_folder
+        self.best_metric_key = best_metric_key
+        self.best_metric_mode = best_metric_mode
+        
     def _scheduled_ratio(self, epoch: int) -> float:
         if self.schedule_fn is not None:
             return float(self.schedule_fn(epoch))
@@ -119,7 +127,29 @@ class DualSeqCMDOnlyTrainer:
         cmd_only_metrics = {key: float(np.mean([metric[key] for metric in cmd_only_metric_list])) for key in cmd_only_metric_list[0].keys()}
         metrics.update({k : v for k, v in cmd_only_metrics.items()})
         return metrics
-
+    
+    def save_progression(self, 
+                   folder_path: str, 
+                   progression: list[dict[str, float]]):
+        
+        # Save all progression metrics in history.csv
+        history_df = pd.DataFrame(progression)
+        history_file_path = f"{folder_path}/history.csv"
+        history_df.to_csv(history_file_path, index=False)
+        
+    def save_on_best_epoch(self, 
+                   folder_path: str, 
+                   best_epoch: int, 
+                   best_epoch_metrics: dict[str, float]):
+        
+        # Save best epoch metrics as column epoch, metric1, metric2, ...
+        df = pd.DataFrame([{**{"epoch": best_epoch}, **best_epoch_metrics}])
+        file_path = f"{folder_path}/best_epoch.csv"
+        df.to_csv(file_path, index=False)
+        
+        # Save model state dict
+        self.wrapper.save(folder_path)
+        
     def fit(self, epochs: int, verbose: bool = True):
         init_str = f"Starting training for {epochs} epochs"
         if self.quant_type is not None:
@@ -134,6 +164,8 @@ class DualSeqCMDOnlyTrainer:
         print(init_str)
         
         history: list[dict[str, float]] = []
+        best_metric_value = float('-inf')
+        best_epoch = -1
 
         for epoch in range(epochs):
             train_ratio = self._scheduled_ratio(epoch)
@@ -157,7 +189,25 @@ class DualSeqCMDOnlyTrainer:
             history.append(summary)
             if verbose:
                 print(f"Epoch {epoch + 1}/{epochs}: {summary}")
+            
+            if self.best_metric_key not in summary:
+                raise ValueError(f"Best metric '{self.best_metric_key}' not found in summary metrics: {summary.keys()}")
+            
+            current_metric_value = summary[self.best_metric_key]
+            if self.best_metric_mode == "min":
+                if current_metric_value < best_metric_value and self.save_folder is not None:
+                    best_metric_value = current_metric_value
+                    best_epoch = epoch
+                    self.save_on_best_epoch(self.save_folder, best_epoch, summary)
+            else:
+                if current_metric_value > best_metric_value and self.save_folder is not None:
+                    best_metric_value = current_metric_value
+                    best_epoch = epoch
+                    self.save_on_best_epoch(self.save_folder, best_epoch, summary)
 
+        if self.save_folder is not None:
+            self.save_progression(self.save_folder, history)
+                
         return history
 
     def train(self, epochs: int, verbose: bool = True):

@@ -151,15 +151,13 @@ def train_model(config: Config | str,
             optimizer,
             train_loader=train_loader,
             val_loader=val_loader,
+            save_folder=SAVE_ROOT,
             **config["trainer"]["kwargs"]
         )
     else :
         raise NotImplementedError("Trainer for non-cmdonly data is not implemented yet.")
     
     progression = trainer.train(config["trainer"]["epochs"], verbose=verbose_all)
-
-    # save the model
-    torch.save(wrapper.model.state_dict(), CHECKPOINT_SAVE_PATH)
     
     # inference test for ten random samples
     rand_idxs = torch.randperm(len(dual_seqs))[:10]

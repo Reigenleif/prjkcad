@@ -114,7 +114,7 @@ class DualSeqCMDOnlyWrapper(torch.nn.Module):
         """
         
         os.makedirs(folder_path, exist_ok=True)
-        torch.save(self.model.state_dict(), os.path.join(folder_path, "model.pt"))
+        torch.save(self.model.state_dict(), os.path.join(folder_path, "checkpoint.pt"))
 
     @classmethod
     def from_pretrained(cls, 
