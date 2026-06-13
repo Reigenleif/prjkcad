@@ -8,7 +8,7 @@ data:
     num_workers: 4
     description_level: abstract
     batch_size: 16
-    max_samples: 16
+    max_samples: 2048
 
 tokenizer:
     source: huggingface
