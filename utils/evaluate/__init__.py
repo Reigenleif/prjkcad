@@ -22,6 +22,8 @@ def eval_cmd_only(pred_cmds, gt_cmds):
         metrics[f"{token}_precision"] = precision
         metrics[f"{token}_recall"] = recall
         metrics[f"{token}_f1"] = f1
+        
+    metrics["avg_f1"] = sum(metrics[f"{token}_f1"] for token in observe_tokens) / len(observe_tokens)
 
     extrusions = ["EXTRUDE_NEW", "EXTRUDE_JOIN", "EXTRUDE_CUT", "EXTRUDE_INTERSECT"]
     metrics["EXTRUDE_accuracy"] = tokens_accuracy_from_cmd_list(pred_cmds, gt_cmds, extrusions)
