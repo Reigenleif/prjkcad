@@ -3,23 +3,53 @@ import tempfile
 from tqdm import tqdm
 import pandas as pd
 
+
 from .schema import get_dualseq_schema
+from .geom_utils import *
 
 class DualSeq:
+    """
+    Dual Sequence class for representing CAD 3D modelling.
+
+    Args:
+        json_object (dict): Original JSON containing CAD data.
+        uid (str): Unique identifier for the CAD model.
+        format (str): Input JSON format.
+        descriptions (dict[str, str] | None):
+            Descriptions at different expertise levels.
+            Keys: "abstract", "beginner", "intermediate", "expert".
+
+    Supported formats:
+        text2cad: Text2CAD description + Text2CAD JSON format
+        text2caddeepcad: Text2CAD description + DeepCAD JSON format
+    """
+        
     EXTRUSION_OPERATORS = {"NewBodyFeatureOperation", 
                            "JoinFeatureOperation", 
                            "CutFeatureOperation", 
                            "IntersectFeatureOperation"}
+    
+    EXTEND_TYPES = {"AlongDistance", "AgainstDistance"}
+    
 
     def __init__(self, 
                  json_object: dict, 
-                 uid: str, 
+                 uid: str,
+                 format: str = "text2cad",
                  descriptions: dict[str, str] | None = None):
+       
         
         # Default input format : text2cad
-        self.from_text2cad(json_object, uid, descriptions)
+        if format == "text2cad":
+            self.init_text2cad(json_object, uid, descriptions)
+            
+        if format == "text2caddeepcad":
+            self.init_text2caddeepcad(json_object, uid, descriptions)
+            
+        else:
+            raise ValueError(f"Unsupported format: {format}")
 
-    def from_text2cad(self, 
+    def init_text2cad(self, 
                       json_object: dict, 
                       uid: str,
                       descriptions: dict[str, str] | None):
@@ -129,17 +159,162 @@ class DualSeq:
             
         return [cmd], [args]
     
-    def from_deepcad(self, json_object: dict, uid: str):
-        # TODO : Implement this for DeepCAD data format
+    def init_text2caddeepcad(self, 
+                             json_object: dict, 
+                             uid: str,
+                             descriptions: dict[str, str] | None):
+        
+        self.uid = uid
+        self.descriptions = descriptions or {}
+        
+        entities = json_object["entities"]
+        sequences = json_object["sequence"] # Unordered list of sequence groups
+        sequence_list = [None] * len(sequences)
+        
+        cmds: list[str] = []
+        args: list[dict] = []
+        for seq in sequences:
+            if seq["index"] >= len(sequences):
+                raise ValueError(f"Sequence index {seq['index']} is out of bounds for sequence length {len(sequences)}")
+            sequence_list[seq["index"]] = seq
+        
+        for seq in sequence_list:
+            if seq["type"] != "ExtrudeFeature" :
+                continue
+            
+            new_cmds, new_args = self.process_extrusion(json_object, seq)
+            
+            cmds.extend(new_cmds)
+            args.extend(new_args)
+        
         pass
     
-    def from_cadfusion(self, cadfusion_string: str, uid: str):
+    def process_extrusion(self, json_object: dict, seq: dict) -> list[tuple[str, dict]]:
+        cmds = []
+        args = []
+
+        extrude_id = seq["entity"]
+        extrude_entity = json_object["entities"][extrude_id]
+        
+        # SKETCHES
+        sketches = extrude_entity["profiles"] # the key is profiles
+        
+        for sketch in sketches:
+            sketch_id = sketch["sketch"]
+            assert sketch_id in json_object["entities"], f"Sketch ID {sketch_id} from extrusion {extrude_id} not found in entities"
+            
+            sketch_entity = json_object["entities"][sketch_id]    
+            
+            # add COOR
+            eua = R_to_euler(sketch_entity["transform"])
+            coor_args = {"coor_tx": sketch_entity["transform"]["origin"]["x"],
+                            "coor_ty": sketch_entity["transform"]["origin"]["y"],
+                            "coor_tz": sketch_entity["transform"]["origin"]["z"],
+                            "coor_euax": eua["euax"],
+                            "coor_euay": eua["euay"],
+                            "coor_euaz": eua["euaz"]}
+            cmds.append("COOR")
+            args.append(coor_args)
+            
+            # add FACE
+            face_keys = sketch_entity["profiles"] # the key is profiles
+            for face_key in face_keys:
+                face = sketch_entity["profiles"][face_key]
+                
+                cmds.append("FACE")
+                args.append({})
+                
+                loops = face["loops"]
+                for loop in loops:
+                    cmds.append("LOOP")
+                    args.append({})
+                    
+                    curves = loop["profile_curves"]
+                    for curve in curves:
+                        # LINE
+                        if curve["type"] == "Line3D":
+                            line_2d_args = line_3d_to_line_2d(curve, 
+                                                              coor_args)
+                            
+                            cmds.append("LINE")
+                            args.append(line_2d_args)
+                            
+                        # CIRCLE
+                        elif curve["type"] == "Circle3D":
+                            circle_2d_args = circle_3d_to_circle_2d(curve, 
+                                                                    coor_args)
+                            cmds.append("CIRCLE")
+                            args.append(circle_2d_args)
+                            
+                        # ARC
+                        elif curve["type"] == "Arc3D":
+                            arc_2d_args = arc_3d_to_arc_2d(curve, 
+                                                          coor_args)
+                            cmds.append("ARC")
+                            args.append(arc_2d_args)
+                            
+                        else:
+                            raise ValueError(f"Unsupported curve type: {curve['type']} in sketch {sketch_id} in extrusion {extrude_id}}}")
+            
+            # EXTRUSION definition
+            operation = extrude_entity["operation"]
+            extend_one = extrude_entity["extend_one"]
+            extend_one_type = extend_one["type"]
+            extend_one_value = extend_one["value"]
+            extend_two = extrude_entity["extend_two"] or None
+            extend_two_type = extend_two["type"] if extend_two else None
+            extend_two_value = extend_two["value"] if extend_two else None
+
+            assert not (extend_one_type == extend_two_type), f"Both extend_one and extend_two cannot have the same type in extrusion {extrude_id}"
+            assert extend_one_type in self.EXTEND_TYPES, f"Unsupported extend_one type: {extend_one_type} in extrusion {extrude_id}"
+            if extend_two_type:
+                assert extend_two_type in self.EXTEND_TYPES, f"Unsupported extend_two type: {extend_two_type} in extrusion {extrude_id}"
+            
+            extrusion_args = {"extrude_dtn": None,
+                              "extrude_don": None,
+                              "extrude_scale": 1.0}
+            
+            if extend_one["type"] == "AlongDistance":
+                extrusion_args["extrude_dtn"] = extend_one_value
+            else:
+                extrusion_args["extrude_don"] = extend_one_value
+                
+            if extend_two_type:
+                if extend_two_type == "AlongDistance":
+                    extrusion_args["extrude_dtn"] = extend_two_value
+                else:
+                    extrusion_args["extrude_don"] = extend_two_value
+            if operation == "NewBodyFeatureOperation":
+                cmds.append("EXTRUDE_NEW")
+                args.append(extrusion_args)
+                
+            elif operation == "JoinFeatureOperation":
+                cmds.append("EXTRUDE_JOIN")
+                args.append(extrusion_args)
+                
+            elif operation == "CutFeatureOperation":
+                cmds.append("EXTRUDE_CUT")
+                args.append(extrusion_args)
+                
+            elif operation == "IntersectFeatureOperation":
+                cmds.append("EXTRUDE_INTERSECT")
+                args.append(extrusion_args)
+            else:
+                raise ValueError(f"Unsupported extrusion operation: {operation} in extrusion {extrude_id}")
+            
+        return cmds, args
+        
+            
+        
+        
+    @staticmethod
+    def from_cadfusion(cadfusion_string: str, uid: str):
         # TODO : Implement this for CADFusion data format
         pass
     
     
-    @classmethod
-    def from_text2cad_df(cls, df:pd.DataFrame, max_len: int = None) :
+    @staticmethod
+    def from_text2cad_df(df:pd.DataFrame, max_len: int = None) :
         dual_seqs = []
         success_count = 0
         for i, row in tqdm(df.iterrows(), total=len(df)):
@@ -154,7 +329,40 @@ class DualSeq:
                 if any(pd.isna(v) or str(v).strip() == "" for v in desc_vals.values()):
                     continue
                 descriptions = desc_vals
-                dual_seq = cls(json_object,
+                dual_seq = DualSeq(json_object,
+                                format="text2cad",
+                                uid=row["uid"],
+                                descriptions=descriptions)
+                if max_len is not None and len(dual_seq) > max_len:
+                    continue
+                success_count += 1
+                dual_seqs.append(dual_seq)
+                
+            except Exception as e:
+                print(f"Error at index {i}: {e}")
+
+        if success_count < len(df):
+            print(f"Successfully created {success_count}/{len(df)} DualSeq instances.")
+        return dual_seqs
+    
+    @staticmethod
+    def from_text2caddeepcad_df(df: pd.DataFrame, max_len: int = None):
+        dual_seqs = []
+        success_count = 0
+        for i, row in tqdm(df.iterrows(), total=len(df)):
+            try :
+                json_object = row["json_target"]
+                # Skip this row if any description field is empty or missing
+                desc_keys = ["abstract", "beginner", "intermediate", "expert"]
+                try:
+                    desc_vals = {k: row[k] for k in desc_keys}
+                except Exception:
+                    continue
+                if any(pd.isna(v) or str(v).strip() == "" for v in desc_vals.values()):
+                    continue
+                descriptions = desc_vals
+                dual_seq = DualSeq(json_object,
+                                   format="text2caddeepcad",
                                 uid=row["uid"],
                                 descriptions=descriptions)
                 if max_len is not None and len(dual_seq) > max_len:
