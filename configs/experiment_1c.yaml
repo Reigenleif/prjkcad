@@ -1,4 +1,4 @@
-# Experiment 1C to train T5EncT5DecCAD at medium LR with a medium portion of data, starting from the checkpoint of experiment 1B.
+# Experiment 1C to train T5EncT5DecCADCMDOnly at medium LR with a medium portion of data, starting from the checkpoint of experiment 1B.
 run_name: experiment_1c
 data:
     data_root: data/text2cad
@@ -17,7 +17,7 @@ tokenizer:
 
 model:
     source: local
-    cls: T5EncT5DecCAD
+    cls: T5EncT5DecCADCMDOnly
     is_pretrained: false
     kwargs:
         pretrained_model_name: t5-small
