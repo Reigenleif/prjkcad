@@ -43,15 +43,16 @@ def build_dualseq_schema() -> dict[str, object]:
     command_to_id.update({name: index for index, name in enumerate(SPECIAL_COMMANDS)})
     arg_names: list[str] = []
     cursor = 0
+    command_to_slice: dict[str, tuple[int, int]] = {}
     for command_name in command_names:
         command_args = list(DEFAULT_COMMANDS[command_name])
         arg_names.extend(command_args)
+        command_to_slice[command_name] = (cursor, cursor + len(command_args))
         cursor += len(command_args)
     arg_dim = len(arg_names)
 
     id_to_arg_name : dict[int, str] = {index: name for index, name in enumerate(arg_names)} 
     arg_name_to_id = {name: index for index, name in enumerate(arg_names)}
-    
 
     return {"command_names": command_names, 
             "command_to_id": command_to_id, 
@@ -59,6 +60,7 @@ def build_dualseq_schema() -> dict[str, object]:
             "arg_names": arg_names, 
             "id_to_arg_name": id_to_arg_name,
             "arg_name_to_id": arg_name_to_id,
+            "command_to_slice": command_to_slice,
             "n_cmds": len(command_names), 
             "n_tokens": len(command_names) + len(SPECIAL_COMMANDS),  # including PAD, SOS, EOS
             "n_args": arg_dim, 
