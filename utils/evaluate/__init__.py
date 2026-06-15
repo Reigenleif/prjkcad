@@ -1,4 +1,5 @@
-from .evaluation_functions import token_precision_from_cmd_list, token_recall_from_cmd_list, token_f1_from_cmd_list, token_accuracy_from_cmd_list, tokens_accuracy_from_cmd_list
+from .cmd_evaluation_functions import token_precision_from_cmd_list, token_recall_from_cmd_list, token_f1_from_cmd_list, token_accuracy_from_cmd_list, tokens_accuracy_from_cmd_list
+from .args_evaluation_functions import arg_r2_score, arg_mape
 
 
 def eval_cmd_only(pred_cmds, gt_cmds):
@@ -30,3 +31,13 @@ def eval_cmd_only(pred_cmds, gt_cmds):
     
         
     return metrics
+
+def eval_args_only(pred_args, gt_args):
+    metrics = {}
+    metrics["arg_r2"] = arg_r2_score(pred_args, gt_args)
+    metrics["arg_mape"] = arg_mape(pred_args, gt_args)
+    
+    return metrics
+
+def eval_cmd_and_args(pred_cmds, gt_cmds, pred_args, gt_args):
+    return {**eval_cmd_only(pred_cmds, gt_cmds), **eval_args_only(pred_args, gt_args)}
