@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 import torch
 from torch import nn
 
@@ -11,59 +9,73 @@ from utils.dual_seq import get_dualseq_schema
 class DualSeqCriterion(nn.Module):
     def __init__(
         self,
-        cmd_loss_weight: float = 1.0,
-        arg_loss_weight: float = 1.0,
         pad_id: int | None = None,
+        lambda_after_pad: float = 3.0,
+        lambda_overgen: float = 3.0,
+        lambda_args: float = 0.1,
     ):
         super().__init__()
         schema = get_dualseq_schema()
-        self.cmd_loss_weight = cmd_loss_weight
-        self.arg_loss_weight = arg_loss_weight
         self.pad_id = schema["pad_id"] if pad_id is None else pad_id
         self.n_args = schema["n_args"]
+
         self.cmd_loss_fn = nn.CrossEntropyLoss(ignore_index=self.pad_id)
+        self.arg_loss_fn = nn.MSELoss()
 
-        command_arg_masks = torch.zeros(schema["command_vocab_size"], self.n_args, dtype=torch.float32)
-        for command_name, command_id in schema["command_to_id"].items():
-            command_arg_masks[command_id] = torch.tensor(schema["command_to_mask"][command_name], dtype=torch.float32)
+        self.lambda_after_pad = lambda_after_pad
+        self.lambda_overgen = lambda_overgen
+        self.lambda_args = lambda_args
 
-        self.register_buffer("command_arg_masks", command_arg_masks, persistent=False)
+    def forward(self, cmd_logits, cmd_targets, arg_preds, arg_targets):
+        B, T_pred, V = cmd_logits.shape
+        T_tgt = cmd_targets.size(1)
 
-    def forward(
-        self,
-        cmd_logits: torch.Tensor,
-        arg_preds: torch.Tensor,
-        cmd_targets: torch.Tensor,
-        arg_targets: torch.Tensor,
-        arg_masks: torch.Tensor | None = None,
-        decoder_attention_mask: torch.Tensor | None = None,
-    ) -> dict[str, torch.Tensor]:
-        if arg_masks is None:
-            arg_masks = self.command_arg_masks[cmd_targets]
+        T = min(T_pred, T_tgt)
+
+        # CMD loss 
+        logits_trim = cmd_logits[:, :T, :]
+        targets_trim = cmd_targets[:, :T]
 
         cmd_loss = self.cmd_loss_fn(
-            cmd_logits.reshape(-1, cmd_logits.size(-1)),
-            cmd_targets.reshape(-1),
+            logits_trim.reshape(-1, V),
+            targets_trim.reshape(-1),
         )
 
-        valid_mask = cmd_targets.ne(self.pad_id)
-        if decoder_attention_mask is not None:
-            valid_mask = valid_mask & decoder_attention_mask.bool()
+        preds = cmd_logits.argmax(dim=-1)  # (B, T_pred)
 
-        predicted_cmds = cmd_logits.argmax(dim=-1)
-        correct_mask = predicted_cmds.eq(cmd_targets) & valid_mask
+        # 1) penalty: non-pad tokens AFTER first pad in prediction
+        pred_is_pad = preds.eq(self.pad_id)
+        idxs = torch.arange(T_pred, device=preds.device).unsqueeze(0).expand(B, -1)
+        first_pad_idx = torch.where(
+            pred_is_pad,
+            idxs,
+            torch.full_like(idxs, T_pred)
+        ).min(dim=1).values  # (B,)
+        after_pad_mask = idxs > first_pad_idx.unsqueeze(1)
+        non_pad_after_pad = after_pad_mask & (~pred_is_pad)
+        penalty_after_pad = non_pad_after_pad.float().sum() / B
 
-        active_mask = arg_masks.to(arg_preds.dtype) * correct_mask.unsqueeze(-1).to(arg_preds.dtype)
-        squared_error = (arg_preds - arg_targets).pow(2) * active_mask
-        active_count = active_mask.sum().clamp(min=1.0)
-        arg_loss = squared_error.sum() / active_count
+        # 2) penalty: generating beyond target length
+        if T_pred > T_tgt:
+            extra_preds = preds[:, T_tgt:]
+            overgen_mask = extra_preds.ne(self.pad_id)
+            penalty_overgen = overgen_mask.float().sum() / B
+        else:
+            penalty_overgen = torch.tensor(0.0, device=cmd_logits.device)
 
-        total_loss = self.cmd_loss_weight * cmd_loss + self.arg_loss_weight * arg_loss
-        cmd_accuracy = correct_mask.float().sum() / valid_mask.float().sum().clamp(min=1.0)
+        # ARG loss (MSE, only over the overlapping time steps) 
+        T_arg = min(arg_preds.size(1), arg_targets.size(1))
+        arg_loss = self.arg_loss_fn(
+            arg_preds[:, :T_arg, :],
+            arg_targets[:, :T_arg, :].to(arg_preds.dtype),
+        )
 
-        return {
-            "loss": total_loss,
-            "cmd_loss": cmd_loss,
-            "arg_loss": arg_loss,
-            "cmd_accuracy": cmd_accuracy,
-        }
+        # Total 
+        total_loss = (
+            cmd_loss
+            + self.lambda_after_pad * penalty_after_pad
+            + self.lambda_overgen * penalty_overgen
+            + self.lambda_args * arg_loss
+        )
+
+        return total_loss

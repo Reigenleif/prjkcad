@@ -11,12 +11,18 @@ from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 from utils.set_seed import set_seed
 from utils.dataset import Text2CADLoader
 from utils.dual_seq import DualSeq, get_dualseq_schema
-from utils.data_utils import create_cmdonly_data_loader
+from utils.data_utils import create_cmdonly_data_loader, create_dualseq_data_loader
 from utils.wrapper import DualSeqCMDOnlyWrapper
+from utils.wrapper import DualSeqWrapper
 from utils.criterion import DualSeqCMDOnlyCriterion
+from utils.criterion import DualSeqCriterion
 from utils.trainer import DualSeqCMDOnlyTrainer
+from utils.trainer import DualSeqTrainer
 
-from models.t5_enc_t5_dec_cad import T5EncT5DecCAD
+from models.t5_t5_t5 import T5T5T5
+from models.t5_t5_cmdonly import T5T5Cmdonly
+from models.t5_torch_cmdonly import T5TorchCmdonly
+from models.t5_torch_torch import T5TorchTorch
 
 
 Config = dict[str, Union[str, "Config"]]
@@ -66,22 +72,39 @@ def train_model(config: Config | str,
             print(f"Sampled {sample_size} instances from the dataset based on the specified sample ratio of {config['data']['sample_ratio']}.")
         
         if USE_VAL :
-            train_loader, val_loader = create_cmdonly_data_loader(dual_seqs,
-                                                                  text_tokenizer,
-                                                                  description_level=config["data"]["description_level"],
-                                                                    batch_size=config["data"]["batch_size"],
-                                                                    num_workers=config["data"]["num_workers"],
-                                                                    val_ratio=config["data"]["eval_split_ratio"],
-                                                                    shuffle=True)
-            
+            if config["data"]["is_cmdonly"] :
+                train_loader, val_loader = create_cmdonly_data_loader(dual_seqs,
+                                                                      text_tokenizer,
+                                                                      description_level=config["data"]["description_level"],
+                                                                      batch_size=config["data"]["batch_size"],
+                                                                      num_workers=config["data"]["num_workers"],
+                                                                      val_ratio=config["data"]["eval_split_ratio"],
+                                                                        shuffle=True)
+            else :
+                train_loader, val_loader = create_dualseq_data_loader(dual_seqs,
+                                                               text_tokenizer,
+                                                               description_level=config["data"]["description_level"],
+                                                               batch_size=config["data"]["batch_size"],
+                                                               num_workers=config["data"]["num_workers"],
+                                                               val_ratio=config["data"]["eval_split_ratio"],
+                                                               shuffle=True)
         else :
-            train_loader = create_cmdonly_data_loader(dual_seqs,
-                                                     text_tokenizer,
-                                                     description_level=config["data"]["description_level"],
-                                                     batch_size=config["data"]["batch_size"],
-                                                     num_workers=config["data"]["num_workers"],
-                                                     val_ratio=0.0,
-                                                     shuffle=True)
+            if config["data"]["is_cmdonly"] :
+                train_loader = create_cmdonly_data_loader(dual_seqs,
+                                                         text_tokenizer,
+                                                         description_level=config["data"]["description_level"],
+                                                         batch_size=config["data"]["batch_size"],
+                                                         num_workers=config["data"]["num_workers"],
+                                                         val_ratio=0.0,
+                                                         shuffle=True)
+            else :
+                train_loader = create_dualseq_data_loader(dual_seqs,
+                                                         text_tokenizer,
+                                                         description_level=config["data"]["description_level"],
+                                                         batch_size=config["data"]["batch_size"],
+                                                         num_workers=config["data"]["num_workers"],
+                                                         val_ratio=0.0,
+                                                         shuffle=True)
             val_loader = None
                            
     else :
@@ -89,8 +112,14 @@ def train_model(config: Config | str,
     
     # Wrapper and Model loading
     if config["model"]["source"] == "local" :
-        if config["model"]["cls"] == "T5EncT5DecCAD" :
-            model_cls = T5EncT5DecCAD
+        if config["model"]["cls"] == "T5T5T5" :
+            model_cls = T5T5T5
+        elif config["model"]["cls"] == "T5T5Cmdonly" :
+            model_cls = T5T5Cmdonly
+        elif config["model"]["cls"] == "T5TorchCmdonly" :
+            model_cls = T5TorchCmdonly
+        elif config["model"]["cls"] == "T5TorchTorch" :
+            model_cls = T5TorchTorch
         else :
             raise ValueError(f"Unsupported model class: {config['model']['cls']}")
     elif config["model"]["source"] == "huggingface" :
@@ -100,8 +129,14 @@ def train_model(config: Config | str,
         raise ValueError(f"Unsupported model source: {config['model']['source']}")
     
     
-    model_kwargs = {"vocab_size": get_dualseq_schema()["n_tokens"], 
-                    **config["model"]["kwargs"]}
+    if config["data"]["is_cmdonly"] :
+        model_kwargs = {"vocab_size": get_dualseq_schema()["n_tokens"], 
+                        **config["model"]["kwargs"]}
+    else :
+        model_kwargs = {"vocab_size": get_dualseq_schema()["n_tokens"], 
+                        "n_args": get_dualseq_schema()["n_args"], 
+                        **config["model"]["kwargs"]}
+        
     
     if not config["model"]["is_pretrained"] :
         # If the model is not pretrained, initialize the model, then the wrapper
@@ -110,7 +145,7 @@ def train_model(config: Config | str,
         if config["data"]["is_cmdonly"] :
             wrapper = DualSeqCMDOnlyWrapper(model, text_tokenizer)
         elif not config["data"]["is_cmdonly"] :
-            raise NotImplementedError("Wrapper for non-cmdonly data is not implemented yet.")
+            wrapper = DualSeqWrapper(model, text_tokenizer)
         
     else :
         # If the model is pretrained, load the model from the specified path, directly using wrapper
@@ -122,12 +157,19 @@ def train_model(config: Config | str,
                 model_kwargs=model_kwargs
             )
         elif not config["data"]["is_cmdonly"] :
-            raise NotImplementedError("Wrapper for non-cmdonly data is not implemented yet.")
+            wrapper = DualSeqWrapper.from_pretrained(
+                model_cls,
+                config["pretrained_path"],
+                seq2seq_model_name=config["tokenizer"]["model_name"],
+                model_kwargs=model_kwargs
+            )
         
     # Criterion loading
     if config["trainer"]["criterion"]["source"] == "local" :
         if config["trainer"]["criterion"]["cls"] == "DualSeqCMDOOnlyCriterion" :
             criterion_cls = DualSeqCMDOnlyCriterion
+        elif config["trainer"]["criterion"]["cls"] == "DualSeqCriterion" :
+            criterion_cls = DualSeqCriterion
         else :
             raise ValueError(f"Unsupported criterion class: {config['trainer']['criterion']['cls']}")
     else :
@@ -155,7 +197,15 @@ def train_model(config: Config | str,
             **config["trainer"]["kwargs"]
         )
     else :
-        raise NotImplementedError("Trainer for non-cmdonly data is not implemented yet.")
+        trainer = DualSeqTrainer(
+            wrapper,
+            criterion,
+            optimizer,
+            train_loader=train_loader,
+            val_loader=val_loader,
+            save_folder=SAVE_ROOT,
+            **config["trainer"]["kwargs"]
+        )  
     
     progression = trainer.train(config["trainer"]["epochs"], verbose=verbose_all)
     
@@ -189,22 +239,29 @@ def plot_progression(config, progression: list[dict[str, float]]):
             "val": [h["val_perplexity"] for h in progression],
         },
         "val_performance" :{
-            "LINE_precision": [h.get("LINE_precision", 0) for h in progression],
-            "LINE_recall": [h.get("LINE_recall", 0) for h in progression],
-            "LINE_f1": [h.get("LINE_f1", 0) for h in progression],
-            "CIRCLE_precision": [h.get("CIRCLE_precision", 0) for h in progression],
-            "CIRCLE_recall": [h.get("CIRCLE_recall", 0) for h in progression],
-            "CIRCLE_f1": [h.get("CIRCLE_f1", 0) for h in progression],
-            "ARC_precision": [h.get("ARC_precision", 0) for h in progression],
-            "ARC_recall": [h.get("ARC_recall", 0) for h in progression],
-            "ARC_f1": [h.get("ARC_f1", 0) for h in progression],
-            "EXTRUDE_accuracy": [h.get("EXTRUDE_accuracy", 0) for h in progression],
+            "LINE_precision": [h.get("val_LINE_precision", 0) for h in progression],
+            "LINE_recall": [h.get("val_LINE_recall", 0) for h in progression],
+            "LINE_f1": [h.get("val_LINE_f1", 0) for h in progression],
+            "CIRCLE_precision": [h.get("val_CIRCLE_precision", 0) for h in progression],
+            "CIRCLE_recall": [h.get("val_CIRCLE_recall", 0) for h in progression],
+            "CIRCLE_f1": [h.get("val_CIRCLE_f1", 0) for h in progression],
+            "ARC_precision": [h.get("val_ARC_precision", 0) for h in progression],
+            "ARC_recall": [h.get("val_ARC_recall", 0) for h in progression],
+            "ARC_f1": [h.get("val_ARC_f1", 0) for h in progression],
+            "EXTRUDE_accuracy": [h.get("val_EXTRUDE_accuracy", 0) for h in progression],
         }
     }
 
+    if not config["data"]["is_cmdonly"] :
+        viz_keys["val_performance"] = {
+            **viz_keys["val_performance"],
+            "val_arg_mape": [h.get("val_arg_mape", 0) for h in progression],
+            "val_arg_r2": [h.get("val_arg_r2", 0) for h in progression],   
+        }
+
     fig, ax = plt.subplots(3, 1, 
-                           figsize=(10, 8), 
-                           gridspec_kw={"height_ratios": [1, 1, 2]})
+                            figsize=(10, 8), 
+                            gridspec_kw={"height_ratios": [1, 1, 2]})
 
     ax[0].plot(viz_keys["loss"]["train"], label="Train Loss")
     ax[0].plot(viz_keys["loss"]["val"], label="Val Loss")
@@ -223,8 +280,13 @@ def plot_progression(config, progression: list[dict[str, float]]):
     ax[2].plot(viz_keys["val_performance"]["ARC_recall"], label="ARC Recall")
     ax[2].plot(viz_keys["val_performance"]["ARC_f1"], label="ARC F1")
     ax[2].plot(viz_keys["val_performance"]["EXTRUDE_accuracy"], label="EXTRUDE Accuracy")
+    if not config["data"]["is_cmdonly"] :
+        ax[2].plot(viz_keys["val_performance"]["val_arg_r2"], label="Val Arg R2")
+
     ax[2].set_title("Validation Performance Summary")
     ax[2].legend(loc="center left", bbox_to_anchor=(1, 0.5))
+
+    
 
     plt.tight_layout()
     plt.show()
