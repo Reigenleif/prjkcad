@@ -45,6 +45,34 @@ python -m utils.train_model configs/experiment_1a.yaml
 
 Adjust the config file to set dataset paths, model selection, and training hyperparameters. See the `configs/` folder for templates.
 
+Model Naming
+---------
+The model naming follows this format
+```
+<EncNameOrArch>Enc<DecNameOrArch>DecCAD<IsCMDOnlyOrNot>
+```
+
+- `<EncNameOrArch>`: Encoder name or architecture (e.g. `T5`, `Bert`)
+- `<DecNameOrArch>`: Decoder name or architecture (e.g. `T5`, `Torch`)
+- `<IsCMDOnlyOrNot>`: `CMDOnly` if the model is only trained on command sequence, empty if trained on both command and argument sequences
+
+
+Examples
+--------
+T5EncT5DecCADCMDOnly
+- T5 Encoder
+- T5 Decoder
+- CAD Decoder head
+- CMDOnly : trained only on command sequence
+
+T5EncTorchDecCAD
+- T5 Encoder
+- Torch Decoder
+- CAD Decoder head
+- trained on both command and argument sequences (no "CMDOnly")
+
+
+	
 References
 ---------
 
