@@ -43,7 +43,7 @@ class DualSeq:
         if format == "text2cad":
             self.init_text2cad(json_object, uid, descriptions)
             
-        if format == "text2caddeepcad":
+        elif format == "text2caddeepcad":
             self.init_text2caddeepcad(json_object, uid, descriptions)
             
         else:

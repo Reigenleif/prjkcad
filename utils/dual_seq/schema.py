@@ -42,32 +42,30 @@ def build_dualseq_schema() -> dict[str, object]:
     command_to_id = {name: index + len(SPECIAL_COMMANDS) for index, name in enumerate(command_names)}
     command_to_id.update({name: index for index, name in enumerate(SPECIAL_COMMANDS)})
     arg_names: list[str] = []
-    command_to_slice: dict[str, tuple[int, int]] = {}
-    command_to_mask: dict[str, list[int]] = {}
     cursor = 0
     for command_name in command_names:
         command_args = list(DEFAULT_COMMANDS[command_name])
         arg_names.extend(command_args)
-        command_to_slice[command_name] = (cursor, cursor + len(command_args))
         cursor += len(command_args)
     arg_dim = len(arg_names)
-    for command_name in command_names:
-        start, end = command_to_slice[command_name]
-        command_to_mask[command_name] = [1 if start <= index < end else 0 for index in range(arg_dim)]
+
+    id_to_arg_name : dict[int, str] = {index: name for index, name in enumerate(arg_names)} 
+    arg_name_to_id = {name: index for index, name in enumerate(arg_names)}
+    
 
     return {"command_names": command_names, 
             "command_to_id": command_to_id, 
             "id_to_command": {index: name for name, index in command_to_id.items()}, 
             "arg_names": arg_names, 
-            "command_to_slice": command_to_slice, 
-            "command_to_mask": command_to_mask, 
+            "id_to_arg_name": id_to_arg_name,
+            "arg_name_to_id": arg_name_to_id,
             "n_cmds": len(command_names), 
             "n_tokens": len(command_names) + len(SPECIAL_COMMANDS),  # including PAD, SOS, EOS
             "n_args": arg_dim, 
             "sos_id": sos_id, 
             "pad_id": pad_id, 
             "eos_id": eos_id}
-
+    
 
 def get_dualseq_schema() -> dict[str, object]:
     return build_dualseq_schema()
