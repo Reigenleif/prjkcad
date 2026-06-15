@@ -17,7 +17,7 @@ tokenizer:
 
 model:
     source: local
-    cls: T5EncT5DecCADCMDOnly
+    cls: T5T5Cmdonly
     is_pretrained: false
     kwargs:
         pretrained_model_name: t5-small

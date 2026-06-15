@@ -8,7 +8,7 @@ from .components import CADCmdSideEmbedding
         
       
 
-class T5EncT5DecCADCMDOnly(nn.Module):
+class T5T5Cmdonly(nn.Module):
     """
     Model that consists of :
     - T5 Encoder 

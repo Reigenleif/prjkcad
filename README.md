@@ -49,30 +49,41 @@ Model Naming
 ---------
 The model naming follows this format
 ```
-<EncNameOrArch>Enc<DecNameOrArch>DecCAD<IsCMDOnlyOrNot>
+<encoder_name>_<cmd_decoder_name>_<args_decoder_name>
 ```
 
-- `<EncNameOrArch>`: Encoder name or architecture (e.g. `T5`, `Bert`)
-- `<DecNameOrArch>`: Decoder name or architecture (e.g. `T5`, `Torch`)
-- `<IsCMDOnlyOrNot>`: `CMDOnly` if the model is only trained on command sequence, empty if trained on both command and argument sequences
+- `<encoder_name>`: Encoder name or architecture (e.g. `t5`, `bert`)
+- `<cmd_decoder_name>`: CMD decoder name or architecture (e.g. `t5`, `torch`)
+- `<args_decoder_name>`: Args decoder name or architecture (e.g. `t5`, `torch`), or `cmdonly` if the model is trained on command sequence only
 
+For class names, use CamelCase equivalents of each segment (e.g. `t5` → `T5`, `torch` → `Torch`, `cmdonly` → `Cmdonly`).
 
 Examples
 --------
-T5EncT5DecCADCMDOnly
+`T5T5T5` (`t5_t5_t5.py`)
 - T5 Encoder
-- T5 Decoder
-- CAD Decoder head
-- CMDOnly : trained only on command sequence
+- T5 CMD Decoder
+- T5 Args Decoder
+- Trained on both command and argument sequences
 
-T5EncTorchDecCAD
+`T5T5Cmdonly` (`t5_t5_cmdonly.py`)
 - T5 Encoder
-- Torch Decoder
-- CAD Decoder head
-- trained on both command and argument sequences (no "CMDOnly")
+- T5 CMD Decoder
+- Trained on command sequence only
+
+`T5TorchTorch` (`t5_torch_torch.py`)
+- T5 Encoder
+- Torch CMD Decoder
+- Torch Args Decoder
+- Trained on both command and argument sequences
+
+`T5TorchCmdonly` (`t5_torch_cmdonly.py`)
+- T5 Encoder
+- Torch CMD Decoder
+- Trained on command sequence only
 
 
-	
+
 References
 ---------
 
