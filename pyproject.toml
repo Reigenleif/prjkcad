@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "prjkcad"
+version = "0.1.0"
+description = "CAD project configuration based on requirements"
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "h5py",
+    "joblib",
+    "matplotlib",
+    "numpy",
+    "Pillow",
+    "plyfile",
+    "python-occ",
+    "scikit-learn",
+    "scipy",
+    "tensorboardX",
+    "torch==2.12.0+cu130",
+    "tqdm",
+    "trimesh"
+]
+
+[tool.pyright]
+typeCheckingMode = "off"
+reportUnknownVariableType = false
+reportUnusedImport = false
