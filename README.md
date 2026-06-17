@@ -8,17 +8,29 @@ Overview
 Installation
 ------------
 
-1. Create a Python 3.8+ virtual environment and activate it:
+1. Create a conda environment (Python 3.12) and activate it:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
+conda create -n kaggle python=3.12 -y
+conda activate kaggle
 ```
 
-2. Install required packages:
+2. Install native libraries via conda-forge. **`pythonocc-core` is only available via conda** (not pip), and `libtiff` must be pinned to avoid a runtime ABI conflict:
 
 ```bash
-pip install -r requirements.txt
+conda install -c conda-forge pythonocc-core "libtiff=4.5.1" -y
+```
+
+> **Why pin libtiff?**  `libtiff 4.7.x` (conda-forge default) requires `jpeg12_*` symbols
+> from `libjpeg`. When running inside a Jupyter kernel on Ubuntu, the dynamic linker often
+> resolves to the system `libjpeg` (which lacks those symbols), causing an
+> `ImportError: undefined symbol: jpeg12_write_raw_data` from `OCC/libtiff.so.6`.
+> Pinning to `4.5.1` removes the `jpeg12` dependency entirely.
+
+3. Install the project and its Python dependencies:
+
+```bash
+pip install -e .
 ```
 
 Usage
