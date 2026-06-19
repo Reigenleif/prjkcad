@@ -1,5 +1,5 @@
 import os
-from typing import Union, Dict, Any
+from typing import Union, Dict, Any, Optional
 import yaml
 import random
 
@@ -24,10 +24,10 @@ from models.t5_t5_cmdonly import T5T5Cmdonly
 from models.t5_torch_cmdonly import T5TorchCmdonly
 from models.t5_torch_torch import T5TorchTorch
 
+from utils.pipeline.config import Config
 
-Config = dict[str, Union[str, "Config"]]
 
-def load_config(config_path: str) -> Config :
+def load_config(config_path: str) -> Config:
     """
     Load config from a YAML file.
     
@@ -35,25 +35,24 @@ def load_config(config_path: str) -> Config :
         config_path: Path to the config file.
         
     Returns:
-        Config dictionary.
+        Config object.
     """
-    with open(config_path, 'r') as f:
-        config = yaml.safe_load(f)
-    return config
+    return Config.from_yaml(config_path)
 
 
-class TrainModelPipeline :
+class TrainModelPipeline:
     """
     End-to-end training pipeline
 
     Args:
-        cfg: Config dict or path to config file.
+        cfg: Config object, dict or path to config file.
     """
-    
 
-    def __init__(self, cfg: Config | str) :
+    def __init__(self, cfg: Union[Config, Dict[str, Any], str]):
         if isinstance(cfg, str):
             cfg = load_config(cfg)
+        elif isinstance(cfg, dict):
+            cfg = Config.from_dict(cfg)
         self.cfg = cfg
         self.progression = None
         self.trainer = None
@@ -65,152 +64,147 @@ class TrainModelPipeline :
         self.val_loader = None
         self.dual_seqs = None
     
-    def load_things(self) :
+    def load_things(self):
         config = self.cfg
         
-        USE_VAL = config["data"]["eval_split_ratio"] > 0
-        self.SAVE_ROOT = f"out/{config['run_name']}"
+        USE_VAL = config.data.eval_split_ratio > 0
+        self.SAVE_ROOT = f"out/{config.run_name}"
         os.makedirs(self.SAVE_ROOT, exist_ok=True)
         self.CHECKPOINT_SAVE_PATH = f"{self.SAVE_ROOT}/checkpoint.pt"
         self.RENDER_RESULTS_PATH = f"{self.SAVE_ROOT}/render_results"
         self.TEST_RESULT_PATH = f"{self.SAVE_ROOT}/test_result.csv"
         
-        
         # Set random seed for reproducibility
-        set_seed(config["random_seed"])
+        set_seed(config.random_seed)
         
         # Tokenizer loading
-        if config["tokenizer"]["source"] == "huggingface" :
-            text_tokenizer = AutoTokenizer.from_pretrained(config["tokenizer"]["model_name"])
-        else :
-            raise ValueError(f"Unsupported tokenizer source: {config['tokenizer']['source']}")
+        if config.tokenizer.source == "huggingface":
+            text_tokenizer = AutoTokenizer.from_pretrained(config.tokenizer.model_name)
+        else:
+            raise ValueError(f"Unsupported tokenizer source: {config.tokenizer.source}")
         
         # Raw data loading
-        loader = RefLoader(config["data"]["data_root"],
-                            max_samples=config["data"].get("max_samples"),
-                            source_data_type=config["data"]["source_data_type"])
+        loader = RefLoader(config.data.data_root,
+                            max_samples=config.data.max_samples,
+                            source_data_type=config.data.source_data_type)
         df = loader.load()
         
         dual_seqs = DualSeq.from_text2cad_df(df)
         
-        if config["data"]["sample_ratio"] :
-            sample_size = int(len(dual_seqs) * config["data"]["sample_ratio"])
+        if config.data.sample_ratio:
+            sample_size = int(len(dual_seqs) * config.data.sample_ratio)
             dual_seqs = random.sample(dual_seqs, sample_size)
-            print(f"Sampled {sample_size} instances from the dataset based on the specified sample ratio of {config['data']['sample_ratio']}.")
+            print(f"Sampled {sample_size} instances from the dataset based on the specified sample ratio of {config.data.sample_ratio}.")
         
-        if USE_VAL :
-            if config["data"]["is_cmdonly"] :
+        if USE_VAL:
+            if config.data.is_cmdonly:
                 train_loader, val_loader = create_cmdonly_data_loader(dual_seqs,
                                                                     text_tokenizer,
-                                                                    description_level=config["data"]["description_level"],
-                                                                    batch_size=config["data"]["batch_size"],
-                                                                    num_workers=config["data"]["num_workers"],
-                                                                    val_ratio=config["data"]["eval_split_ratio"],
-                                                                        shuffle=True)
-            else :
+                                                                    description_level=config.data.description_level,
+                                                                    batch_size=config.data.batch_size,
+                                                                    num_workers=config.data.num_workers,
+                                                                    val_ratio=config.data.eval_split_ratio,
+                                                                    shuffle=True)
+            else:
                 train_loader, val_loader = create_dualseq_data_loader(dual_seqs,
                                                             text_tokenizer,
-                                                            description_level=config["data"]["description_level"],
-                                                            batch_size=config["data"]["batch_size"],
-                                                            num_workers=config["data"]["num_workers"],
-                                                            val_ratio=config["data"]["eval_split_ratio"],
+                                                            description_level=config.data.description_level,
+                                                            batch_size=config.data.batch_size,
+                                                            num_workers=config.data.num_workers,
+                                                            val_ratio=config.data.eval_split_ratio,
                                                             shuffle=True)
-        else :
-            if config["data"]["is_cmdonly"] :
+        else:
+            if config.data.is_cmdonly:
                 train_loader = create_cmdonly_data_loader(dual_seqs,
                                                         text_tokenizer,
-                                                        description_level=config["data"]["description_level"],
-                                                        batch_size=config["data"]["batch_size"],
-                                                        num_workers=config["data"]["num_workers"],
+                                                        description_level=config.data.description_level,
+                                                        batch_size=config.data.batch_size,
+                                                        num_workers=config.data.num_workers,
                                                         val_ratio=0.0,
                                                         shuffle=True)
-            else :
+            else:
                 train_loader = create_dualseq_data_loader(dual_seqs,
                                                         text_tokenizer,
-                                                        description_level=config["data"]["description_level"],
-                                                        batch_size=config["data"]["batch_size"],
-                                                        num_workers=config["data"]["num_workers"],
+                                                        description_level=config.data.description_level,
+                                                        batch_size=config.data.batch_size,
+                                                        num_workers=config.data.num_workers,
                                                         val_ratio=0.0,
                                                         shuffle=True)
             val_loader = None
         
         # Wrapper and Model loading
-        if config["model"]["source"] == "local" :
-            if config["model"]["cls"] == "T5T5T5" :
+        if config.model.source == "local":
+            if config.model.cls == "T5T5T5":
                 model_cls = T5T5T5
-            elif config["model"]["cls"] == "T5T5Cmdonly" :
+            elif config.model.cls == "T5T5Cmdonly":
                 model_cls = T5T5Cmdonly
-            elif config["model"]["cls"] == "T5TorchCmdonly" :
+            elif config.model.cls == "T5TorchCmdonly":
                 model_cls = T5TorchCmdonly
-            elif config["model"]["cls"] == "T5TorchTorch" :
+            elif config.model.cls == "T5TorchTorch":
                 model_cls = T5TorchTorch
-            else :
-                raise ValueError(f"Unsupported model class: {config['model']['cls']}")
-        elif config["model"]["source"] == "huggingface" :
+            else:
+                raise ValueError(f"Unsupported model class: {config.model.cls}")
+        elif config.model.source == "huggingface":
             raise NotImplementedError("Directly loading pretrained model from HuggingFace is not implemented yet. Please set model source to 'local' and load the pretrained model using the wrapper's from_pretrained method.")
-            # model_cls = AutoModelForSeq2SeqLM.from_pretrained(config["model"]["name"])
-        else :
-            raise ValueError(f"Unsupported model source: {config['model']['source']}")
+        else:
+            raise ValueError(f"Unsupported model source: {config.model.source}")
         
-        
-        if config["data"]["is_cmdonly"] :
+        if config.data.is_cmdonly:
             model_kwargs = {"vocab_size": get_dualseq_schema()["n_tokens"], 
-                            **config["model"]["kwargs"]}
-        else :
+                            **config.model.kwargs}
+        else:
             model_kwargs = {"vocab_size": get_dualseq_schema()["n_tokens"], 
                             "n_args": get_dualseq_schema()["n_args"], 
-                            **config["model"]["kwargs"]}
+                            **config.model.kwargs}
             
-        
-        if not config["model"]["is_pretrained"] :
+        if not config.model.is_pretrained:
             # If the model is not pretrained, initialize the model, then the wrapper
             model = model_cls(**model_kwargs)
             # Init wrapper
-            if config["data"]["is_cmdonly"] :
+            if config.data.is_cmdonly:
                 wrapper = DualSeqCMDOnlyWrapper(model, text_tokenizer)
-            elif not config["data"]["is_cmdonly"] :
+            elif not config.data.is_cmdonly:
                 wrapper = DualSeqWrapper(model, text_tokenizer)
             
-        else :
+        else:
             # If the model is pretrained, load the model from the specified path, directly using wrapper
-            if config["data"]["is_cmdonly"] :
+            if config.data.is_cmdonly:
                 wrapper = DualSeqCMDOnlyWrapper.from_pretrained(
                     model_cls,
-                    config["pretrained_path"],
-                    seq2seq_model_name=config["tokenizer"]["model_name"],
+                    config.pretrained_path,
+                    seq2seq_model_name=config.tokenizer.model_name,
                     model_kwargs=model_kwargs
                 )
-            elif not config["data"]["is_cmdonly"] :
+            elif not config.data.is_cmdonly:
                 wrapper = DualSeqWrapper.from_pretrained(
                     model_cls,
-                    config["pretrained_path"],
-                    seq2seq_model_name=config["tokenizer"]["model_name"],
+                    config.pretrained_path,
+                    seq2seq_model_name=config.tokenizer.model_name,
                     model_kwargs=model_kwargs
                 )
             
         # Criterion loading
-        if config["trainer"]["criterion"]["source"] == "local" :
-            if config["trainer"]["criterion"]["cls"] == "DualSeqCMDOOnlyCriterion" :
+        if config.trainer.criterion.source == "local":
+            if config.trainer.criterion.cls == "DualSeqCMDOOnlyCriterion":
                 criterion_cls = DualSeqCMDOnlyCriterion
-            elif config["trainer"]["criterion"]["cls"] == "DualSeqCriterion" :
+            elif config.trainer.criterion.cls == "DualSeqCriterion":
                 criterion_cls = DualSeqCriterion
-            else :
-                raise ValueError(f"Unsupported criterion class: {config['trainer']['criterion']['cls']}")
-        else :
-            raise ValueError(f"Unsupported criterion source: {config['trainer']['criterion']['source']}")
+            else:
+                raise ValueError(f"Unsupported criterion class: {config.trainer.criterion.cls}")
+        else:
+            raise ValueError(f"Unsupported criterion source: {config.trainer.criterion.source}")
         
-        criterion = criterion_cls(**config["trainer"]["criterion"]["kwargs"])
+        criterion = criterion_cls(**config.trainer.criterion.kwargs)
         
         # Optimizer loading
-        if config["trainer"]["optimizer"] == "AdamW" :
+        if config.trainer.optimizer == "AdamW":
             optimizer_cls = torch.optim.AdamW
-        else :
-            raise ValueError(f"Unsupported optimizer: {config['trainer']['optimizer']}")
-        optimizer = optimizer_cls(wrapper.parameters(), **config["trainer"]["optimizer_kwargs"])
-        
+        else:
+            raise ValueError(f"Unsupported optimizer: {config.trainer.optimizer}")
+        optimizer = optimizer_cls(wrapper.parameters(), **config.trainer.optimizer_kwargs)
         
         # Trainer initialization
-        if config["data"]["is_cmdonly"] :
+        if config.data.is_cmdonly:
             trainer = DualSeqCMDOnlyTrainer(
                 wrapper,
                 criterion,
@@ -218,9 +212,9 @@ class TrainModelPipeline :
                 train_loader=train_loader,
                 val_loader=val_loader,
                 save_folder=self.SAVE_ROOT,
-                **config["trainer"]["kwargs"]
+                **config.trainer.kwargs
             )
-        else :
+        else:
             trainer = DualSeqTrainer(
                 wrapper,
                 criterion,
@@ -228,10 +222,9 @@ class TrainModelPipeline :
                 train_loader=train_loader,
                 val_loader=val_loader,
                 save_folder=self.SAVE_ROOT,
-                **config["trainer"]["kwargs"]
+                **config.trainer.kwargs
             )  
         
-
         # Keep all training objects in the pipeline
         self.trainer = trainer
         self.wrapper = wrapper
@@ -242,32 +235,31 @@ class TrainModelPipeline :
         self.val_loader = val_loader
         self.dual_seqs = dual_seqs
 
-    def train_model(self, verbose_all: bool = False) :
+    def train_model(self, verbose_all: bool = False):
         """
         End-to-end function to train the model from model and data loading, training loop, evaluation, and saving.
         """
         
-        if not self.trainer or not self.train_loader :
+        if not self.trainer or not self.train_loader:
             self.load_things()
 
-        progression = self.trainer.train(self.cfg["trainer"]["epochs"], verbose=verbose_all)
+        progression = self.trainer.train(self.cfg.trainer.epochs, verbose=verbose_all)
         self.progression = progression
         
         # inference test for ten random samples
         rand_idxs = torch.randperm(len(self.dual_seqs))[:10]
         results = [
             {
-                "input": self.dual_seqs[i].descriptions[self.cfg["data"]["description_level"]],
+                "input": self.dual_seqs[i].descriptions[self.cfg.data.description_level],
                 "target_cmds": self.dual_seqs[i].cmds,
-                "generated_cmds": self.wrapper.generate(self.dual_seqs[i].descriptions[self.cfg["data"]["description_level"]], 
-                                                max_new_tokens=self.cfg["trainer"]["max_new_cmds"])
+                "generated_cmds": self.wrapper.generate(self.dual_seqs[i].descriptions[self.cfg.data.description_level], 
+                                                max_new_tokens=self.cfg.trainer.max_new_cmds)
             } for i in rand_idxs.tolist()
         ]
         # save to csv
         results_df = pd.DataFrame(results)
         results_df.to_csv(self.TEST_RESULT_PATH, index=False)
         
-
         return progression
 
     def plot_progression(self): 
@@ -277,22 +269,22 @@ class TrainModelPipeline :
             progression: Training progression.
         """
 
-        if not self.progression :
+        if not self.progression:
             raise ValueError("No training progression found. Please train the model first.")
         
         config = self.cfg
         progression = self.progression
-        out_path = f"out/{config['run_name']}/progression.png"
+        out_path = f"out/{config.run_name}/progression.png"
         
         viz_keys = {
-            "loss" : {
+            "loss": {
                 "train": [h["train_loss"] for h in progression],
                 "val": [h["val_loss"] for h in progression],
             },
-            "val_perplexity" : {
+            "val_perplexity": {
                 "val": [h["val_perplexity"] for h in progression],
             },
-            "val_performance" :{
+            "val_performance": {
                 "LINE_precision": [h.get("val_LINE_precision", 0) for h in progression],
                 "LINE_recall": [h.get("val_LINE_recall", 0) for h in progression],
                 "LINE_f1": [h.get("val_LINE_f1", 0) for h in progression],
@@ -306,7 +298,7 @@ class TrainModelPipeline :
             }
         }
 
-        if not config["data"]["is_cmdonly"] :
+        if not config.data.is_cmdonly:
             viz_keys["val_performance"] = {
                 **viz_keys["val_performance"],
                 "val_arg_mape": [h.get("val_arg_mape", 0) for h in progression],
@@ -334,13 +326,11 @@ class TrainModelPipeline :
         ax[2].plot(viz_keys["val_performance"]["ARC_recall"], label="ARC Recall")
         ax[2].plot(viz_keys["val_performance"]["ARC_f1"], label="ARC F1")
         ax[2].plot(viz_keys["val_performance"]["EXTRUDE_accuracy"], label="EXTRUDE Accuracy")
-        if not config["data"]["is_cmdonly"] :
+        if not config.data.is_cmdonly:
             ax[2].plot(viz_keys["val_performance"]["val_arg_r2"], label="Val Arg R2")
 
         ax[2].set_title("Validation Performance Summary")
         ax[2].legend(loc="center left", bbox_to_anchor=(1, 0.5))
-
-        
 
         plt.tight_layout()
         plt.show()
@@ -386,4 +376,3 @@ def merge_best_epochs(out_dir: str = "out", output_path: str = "out/best_merged.
     merged.to_csv(output_path, index=False)
     print(f"Merged {len(frames)} experiment(s) → {output_path}  ({len(merged)} row(s))")
     return merged
-
