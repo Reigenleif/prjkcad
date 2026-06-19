@@ -79,8 +79,10 @@ def render_to_image(shape, filepath, size=(512, 512)):
             triangles,
             facecolors=face_colors,
             edgecolor=(0.3, 0.3, 0.3, 0.15),   # very subtle dark edge lines
-            linewidth=0.1)                       # Step 4
-        ax.add_collection3d(poly)
+            linewidth=0.1,
+            shade=False)                       # Step 4
+        ax.add_collection3d(poly)               # must be added first — get_proj() needs axes
+        poly.set_facecolor(face_colors)         # Step 4: per-face grey set after axes attach
         pts = triangles.reshape(-1, 3)
         ax.auto_scale_xyz(pts[:, 0], pts[:, 1], pts[:, 2])  # equal axis scaling
 
