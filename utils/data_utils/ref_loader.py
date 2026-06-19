@@ -8,14 +8,31 @@ import pandas as pd
 from tqdm import tqdm
 
 
-class Text2CADDeepCADLoader:
-    """Load Text2CAD metadata from the CSV and attach parsed DeepCAD JSON payloads."""
+class RefLoader:
+    """Load Text2CAD metadata from the CSV and attach parsed JSON payloads.
+    
+    Supported Source Data Types :
+    - "text2cad": The original Text2CAD dataset.
+    - "text2caddeepcad": The DeepCAD JSON with Text2CAD anotation
+    """
+    
+    SOURCE_DATA_TYPES = {"text2cad", "text2caddeepcad"}
 
-    def __init__(self, data_root: str | Path, csv_path: str | Path = "text2cad_v1.1.csv", max_samples: int | None = None):
+    def __init__(self, 
+        data_root: str | Path, 
+        csv_path: str | Path = "text2cad_v1.1.csv", 
+        max_samples: int | None = None, 
+        source_data_type: str = "text2cad"
+    ):
+
+        if source_data_type not in self.SOURCE_DATA_TYPES:
+            raise ValueError(f"Unsupported source data type: {source_data_type}. Must be one of {self.SOURCE_DATA_TYPES}")
+        
         self.data_root = Path(data_root).expanduser().resolve()
         self.csv_path = self.data_root / Path(csv_path)
         self.failed_uids: list[str] = []
         self.max_samples = max_samples
+        self.source_data_type = source_data_type
 
     def load_csv(self) -> pd.DataFrame:
         """Load the text2cad CSV from the configured data root."""
@@ -36,6 +53,7 @@ class Text2CADDeepCADLoader:
         if df is None:
             df = self.load_csv()
 
+        print(f"Processing {len(df)} rows to load JSON payloads...")
         if uid_column not in df.columns:
             raise KeyError(f"Missing required column: {uid_column}")
 
@@ -71,13 +89,27 @@ class Text2CADDeepCADLoader:
 
     def _resolve_json_path(self, uid: str) -> Path | None:
         folder, item_id = self._split_uid(uid)
-        candidate = self.data_root / folder / f"{item_id}.json"
-        
+        if self.source_data_type == "deepcad":
+            candidate = self.data_root / folder / f"{item_id}.json"
+            if candidate.exists() and candidate.is_file():
+                return candidate
+            return None
+        elif self.source_data_type == "text2cad":
+            base_dir = self.data_root / folder / item_id / "minimal_json"
 
-        if candidate.exists() and candidate.is_file():
-            return candidate
+            candidates = [
+                base_dir / item_id,
+                base_dir / f"{item_id}.json",
+                base_dir / f"{item_id}_merged_vlm.json",
+                base_dir / f"{item_id}_merged.json",
+            ]
 
-        return None
+            for candidate in candidates:
+                if candidate.exists() and candidate.is_file():
+                    return candidate
+
+            return None
+
 
     def _split_uid(self, uid: str) -> tuple[str, str]:
         normalized = uid.strip().replace("\\", "/")

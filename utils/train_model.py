@@ -9,7 +9,7 @@ import torch
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 
 from utils.set_seed import set_seed
-from utils.dataset import Text2CADLoader
+from utils.data_utils import RefLoader
 from utils.dual_seq import DualSeq, get_dualseq_schema
 from utils.data_utils import create_cmdonly_data_loader, create_dualseq_data_loader
 from utils.wrapper import DualSeqCMDOnlyWrapper
@@ -86,56 +86,53 @@ class TrainModelPipeline :
             raise ValueError(f"Unsupported tokenizer source: {config['tokenizer']['source']}")
         
         # Raw data loading
-        if config["data"]["source_data_type"] == "text2cad" :
-            loader = Text2CADLoader(config["data"]["data_root"],
-                                    max_samples=config["data"]["max_samples"] if "max_samples" in config["data"] else None)
-            df = loader.load()
-            
-            dual_seqs = DualSeq.from_text2cad_df(df)
-            
-            if config["data"]["sample_ratio"] :
-                sample_size = int(len(dual_seqs) * config["data"]["sample_ratio"])
-                dual_seqs = random.sample(dual_seqs, sample_size)
-                print(f"Sampled {sample_size} instances from the dataset based on the specified sample ratio of {config['data']['sample_ratio']}.")
-            
-            if USE_VAL :
-                if config["data"]["is_cmdonly"] :
-                    train_loader, val_loader = create_cmdonly_data_loader(dual_seqs,
-                                                                        text_tokenizer,
-                                                                        description_level=config["data"]["description_level"],
-                                                                        batch_size=config["data"]["batch_size"],
-                                                                        num_workers=config["data"]["num_workers"],
-                                                                        val_ratio=config["data"]["eval_split_ratio"],
-                                                                            shuffle=True)
-                else :
-                    train_loader, val_loader = create_dualseq_data_loader(dual_seqs,
-                                                                text_tokenizer,
-                                                                description_level=config["data"]["description_level"],
-                                                                batch_size=config["data"]["batch_size"],
-                                                                num_workers=config["data"]["num_workers"],
-                                                                val_ratio=config["data"]["eval_split_ratio"],
-                                                                shuffle=True)
+        loader = RefLoader(config["data"]["data_root"],
+                            max_samples=config["data"].get("max_samples"),
+                            source_data_type=config["data"]["source_data_type"])
+        df = loader.load()
+        
+        dual_seqs = DualSeq.from_text2cad_df(df)
+        
+        if config["data"]["sample_ratio"] :
+            sample_size = int(len(dual_seqs) * config["data"]["sample_ratio"])
+            dual_seqs = random.sample(dual_seqs, sample_size)
+            print(f"Sampled {sample_size} instances from the dataset based on the specified sample ratio of {config['data']['sample_ratio']}.")
+        
+        if USE_VAL :
+            if config["data"]["is_cmdonly"] :
+                train_loader, val_loader = create_cmdonly_data_loader(dual_seqs,
+                                                                    text_tokenizer,
+                                                                    description_level=config["data"]["description_level"],
+                                                                    batch_size=config["data"]["batch_size"],
+                                                                    num_workers=config["data"]["num_workers"],
+                                                                    val_ratio=config["data"]["eval_split_ratio"],
+                                                                        shuffle=True)
             else :
-                if config["data"]["is_cmdonly"] :
-                    train_loader = create_cmdonly_data_loader(dual_seqs,
+                train_loader, val_loader = create_dualseq_data_loader(dual_seqs,
                                                             text_tokenizer,
                                                             description_level=config["data"]["description_level"],
                                                             batch_size=config["data"]["batch_size"],
                                                             num_workers=config["data"]["num_workers"],
-                                                            val_ratio=0.0,
+                                                            val_ratio=config["data"]["eval_split_ratio"],
                                                             shuffle=True)
-                else :
-                    train_loader = create_dualseq_data_loader(dual_seqs,
-                                                            text_tokenizer,
-                                                            description_level=config["data"]["description_level"],
-                                                            batch_size=config["data"]["batch_size"],
-                                                            num_workers=config["data"]["num_workers"],
-                                                            val_ratio=0.0,
-                                                            shuffle=True)
-                val_loader = None
-                            
         else :
-            raise ValueError(f"Unsupported data source type: {config['data']['source_data_type']}")
+            if config["data"]["is_cmdonly"] :
+                train_loader = create_cmdonly_data_loader(dual_seqs,
+                                                        text_tokenizer,
+                                                        description_level=config["data"]["description_level"],
+                                                        batch_size=config["data"]["batch_size"],
+                                                        num_workers=config["data"]["num_workers"],
+                                                        val_ratio=0.0,
+                                                        shuffle=True)
+            else :
+                train_loader = create_dualseq_data_loader(dual_seqs,
+                                                        text_tokenizer,
+                                                        description_level=config["data"]["description_level"],
+                                                        batch_size=config["data"]["batch_size"],
+                                                        num_workers=config["data"]["num_workers"],
+                                                        val_ratio=0.0,
+                                                        shuffle=True)
+            val_loader = None
         
         # Wrapper and Model loading
         if config["model"]["source"] == "local" :

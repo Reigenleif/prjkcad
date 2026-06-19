@@ -1,9 +1,9 @@
-from .dataset.text2cad import Text2CADLoader
+from .data_utils import RefLoader
 from .train_model import TrainModelPipeline, load_config, merge_best_epochs
 
 
 __all__ = [
-    "Text2CADLoader",
+    "RefLoader",
     "TrainModelPipeline",
     "load_config",
     "merge_best_epochs",
