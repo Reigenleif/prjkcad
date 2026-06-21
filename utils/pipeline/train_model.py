@@ -19,10 +19,7 @@ from utils.criterion import DualSeqCriterion
 from utils.trainer import DualSeqCMDOnlyTrainer
 from utils.trainer import DualSeqTrainer
 
-from models.t5_t5_t5 import T5T5T5
-from models.t5_t5_cmdonly import T5T5Cmdonly
-from models.t5_torch_cmdonly import T5TorchCmdonly
-from models.t5_torch_torch import T5TorchTorch
+from models import BaseModel
 
 from utils.pipeline.config import Config
 
@@ -134,14 +131,8 @@ class TrainModelPipeline:
         
         # Wrapper and Model loading
         if config.model.source == "local":
-            if config.model.cls == "T5T5T5":
-                model_cls = T5T5T5
-            elif config.model.cls == "T5T5Cmdonly":
-                model_cls = T5T5Cmdonly
-            elif config.model.cls == "T5TorchCmdonly":
-                model_cls = T5TorchCmdonly
-            elif config.model.cls == "T5TorchTorch":
-                model_cls = T5TorchTorch
+            if config.model.cls == "BaseModel":
+                model_cls = BaseModel
             else:
                 raise ValueError(f"Unsupported model class: {config.model.cls}")
         elif config.model.source == "huggingface":
@@ -156,6 +147,9 @@ class TrainModelPipeline:
             model_kwargs = {"vocab_size": get_dualseq_schema()["n_tokens"], 
                             "n_args": get_dualseq_schema()["n_args"], 
                             **config.model.kwargs}
+            
+        if config.model.cls == "BaseModel":
+            model_kwargs["cfg"] = config.model
             
         if not config.model.is_pretrained:
             # If the model is not pretrained, initialize the model, then the wrapper
