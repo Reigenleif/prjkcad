@@ -14,6 +14,10 @@ class PretrainedT5Encoder(nn.Module):
         # Check suitability
         if pretrained_model_name == "t5-small" and d_model != 512:
             raise ValueError(f"t5-small encoder requires d_model to be 512, but got d_model={d_model}")
+        elif pretrained_model_name == "t5-base" and d_model != 768:
+            raise ValueError(f"t5-base encoder requires d_model to be 768, but got d_model={d_model}")
+        elif pretrained_model_name == "t5-large" and d_model != 1024:
+            raise ValueError(f"t5-large encoder requires d_model to be 1024, but got d_model={d_model}")
             
         pretrained_model = AutoModelForSeq2SeqLM.from_pretrained(pretrained_model_name)
         self.encoder = pretrained_model.get_encoder()

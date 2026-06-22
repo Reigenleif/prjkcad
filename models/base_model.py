@@ -19,8 +19,8 @@ class BaseModel(nn.Module):
     Dynamically configures and connects components based on the ModelConfig.
 
     """
-    AVAILABLE_ENCODERS = {"t5-small"}
-    AVAILABLE_DECODERS = {"torch", "sdpa", "t5-small", "mamba"}
+    AVAILABLE_ENCODERS = {"t5-small", "t5-base", "t5-large"}
+    AVAILABLE_DECODERS = {"torch", "sdpa", "t5-small", "t5-base", "t5-large", "mamba"}
 
     def __init__(self, cfg: Config.Model, vocab_size: int, n_args: Optional[int] = None, **kwargs):
         super().__init__()
@@ -32,6 +32,10 @@ class BaseModel(nn.Module):
         self.d_model = getattr(cfg, "d_model", 512)
         if self.d_model is None:
             self.d_model = 512
+            
+        # Ensure d_model is valid
+        if self.d_model not in [512, 768, 1024]:
+            raise ValueError(f"d_model must be one of [512, 768, 1024], but got d_model={self.d_model}")
             
         # Hard coded spec tokens
         self.pad_id = 0
@@ -45,10 +49,14 @@ class BaseModel(nn.Module):
         if cfg.encoder_type not in self.AVAILABLE_ENCODERS:
             raise ValueError(f"Unsupported encoder type: {cfg.encoder_type}. Must be one of {self.AVAILABLE_ENCODERS}")
         
-        if cfg.encoder_type == "t5-small":
-            if self.d_model != 512:
+        if cfg.encoder_type.startswith("t5-"):
+            if cfg.encoder_type == "t5-small" and self.d_model != 512:
                 raise ValueError(f"t5-small encoder requires d_model to be 512, but got d_model={self.d_model}")
-            self.encoder = PretrainedT5Encoder("t5-small", d_model=self.d_model)
+            elif cfg.encoder_type == "t5-base" and self.d_model != 768:
+                raise ValueError(f"t5-base encoder requires d_model to be 768, but got d_model={self.d_model}")
+            elif cfg.encoder_type == "t5-large" and self.d_model != 1024:
+                raise ValueError(f"t5-large encoder requires d_model to be 1024, but got d_model={self.d_model}")
+            self.encoder = PretrainedT5Encoder(cfg.encoder_type, d_model=self.d_model)
 
         # 2. Instantiate Embedding Components for Decoders
         self.cmd_embedding = CADCmdSideEmbedding(
@@ -70,16 +78,26 @@ class BaseModel(nn.Module):
         if cfg.cmd_decoder_type not in self.AVAILABLE_DECODERS:
             raise ValueError(f"Unsupported cmd decoder type: {cfg.cmd_decoder_type}. Must be one of {self.AVAILABLE_DECODERS}")
             
-        if cfg.cmd_decoder_type == "t5-small":
-            if self.d_model != 512:
+        moe_type = getattr(cfg, "moe_type", None)
+        moe_conf = getattr(cfg, "moe_conf", None)
+        
+        if moe_type == "MoA" and cfg.cmd_decoder_type.startswith("t5-"):
+            raise ValueError("MoA (Mixture of Attention) is not available for T5 models")
+
+        if cfg.cmd_decoder_type.startswith("t5-"):
+            if cfg.cmd_decoder_type == "t5-small" and self.d_model != 512:
                 raise ValueError(f"t5-small cmd decoder requires d_model to be 512, but got d_model={self.d_model}")
-            self.cmd_decoder = PretrainedT5Decoder("t5-small", d_model=self.d_model, side_embedding=self.cmd_embedding)
+            elif cfg.cmd_decoder_type == "t5-base" and self.d_model != 768:
+                raise ValueError(f"t5-base cmd decoder requires d_model to be 768, but got d_model={self.d_model}")
+            elif cfg.cmd_decoder_type == "t5-large" and self.d_model != 1024:
+                raise ValueError(f"t5-large cmd decoder requires d_model to be 1024, but got d_model={self.d_model}")
+            self.cmd_decoder = PretrainedT5Decoder(cfg.cmd_decoder_type, d_model=self.d_model, side_embedding=self.cmd_embedding, moe_type=moe_type, moe_conf=moe_conf)
         elif cfg.cmd_decoder_type == "torch":
-            self.cmd_decoder = TorchTransformerDecoder(d_model=self.d_model, side_embedding=self.cmd_embedding)
+            self.cmd_decoder = TorchTransformerDecoder(d_model=self.d_model, side_embedding=self.cmd_embedding, moe_type=moe_type, moe_conf=moe_conf)
         elif cfg.cmd_decoder_type == "sdpa":
-            self.cmd_decoder = SDPATransformerDecoder(d_model=self.d_model, side_embedding=self.cmd_embedding)
+            self.cmd_decoder = SDPATransformerDecoder(d_model=self.d_model, side_embedding=self.cmd_embedding, moe_type=moe_type, moe_conf=moe_conf)
         elif cfg.cmd_decoder_type == "mamba":
-            self.cmd_decoder = MambaTransformerDecoder(d_model=self.d_model, side_embedding=self.cmd_embedding)
+            self.cmd_decoder = MambaTransformerDecoder(d_model=self.d_model, side_embedding=self.cmd_embedding, moe_type=moe_type, moe_conf=moe_conf)
 
         # 4. Instantiate Args Decoder (if applicable) 
         if not cfg.is_cmd_only:
@@ -87,16 +105,23 @@ class BaseModel(nn.Module):
             if args_dec_type not in self.AVAILABLE_DECODERS:
                 raise ValueError(f"Unsupported args decoder type: {args_dec_type}. Must be one of {self.AVAILABLE_DECODERS}")
                 
-            if args_dec_type == "t5-small":
-                if self.d_model != 512:
+            if moe_type == "MoA" and args_dec_type.startswith("t5-"):
+                raise ValueError("MoA (Mixture of Attention) is not available for T5 models")
+
+            if args_dec_type.startswith("t5-"):
+                if args_dec_type == "t5-small" and self.d_model != 512:
                     raise ValueError(f"t5-small args decoder requires d_model to be 512, but got d_model={self.d_model}")
-                self.arg_decoder = PretrainedT5Decoder("t5-small", d_model=self.d_model) # feed arg_embeds as inputs_embeds in forward
+                elif args_dec_type == "t5-base" and self.d_model != 768:
+                    raise ValueError(f"t5-base args decoder requires d_model to be 768, but got d_model={self.d_model}")
+                elif args_dec_type == "t5-large" and self.d_model != 1024:
+                    raise ValueError(f"t5-large args decoder requires d_model to be 1024, but got d_model={self.d_model}")
+                self.arg_decoder = PretrainedT5Decoder(args_dec_type, d_model=self.d_model, moe_type=moe_type, moe_conf=moe_conf) # feed arg_embeds as inputs_embeds in forward
             elif args_dec_type == "torch":
-                self.arg_decoder = TorchTransformerDecoder(d_model=self.d_model)
+                self.arg_decoder = TorchTransformerDecoder(d_model=self.d_model, moe_type=moe_type, moe_conf=moe_conf)
             elif args_dec_type == "sdpa":
-                self.arg_decoder = SDPATransformerDecoder(d_model=self.d_model)
+                self.arg_decoder = SDPATransformerDecoder(d_model=self.d_model, moe_type=moe_type, moe_conf=moe_conf)
             elif args_dec_type == "mamba":
-                self.arg_decoder = MambaTransformerDecoder(d_model=self.d_model)
+                self.arg_decoder = MambaTransformerDecoder(d_model=self.d_model, moe_type=moe_type, moe_conf=moe_conf)
 
 
 
