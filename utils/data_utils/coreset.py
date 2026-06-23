@@ -17,7 +17,9 @@ class CoresetCreator:
 
     def __init__(
         self,
-        dual_seqs: list[DualSeq],
+        dual_seqs: list[DualSeq] | None = None,
+        data_root: str | None = None,
+        source_data_type: str = "text2cad",
         description_level: str = "abstract",
         p: float = 0.01,
         k: int = 100,
@@ -28,7 +30,9 @@ class CoresetCreator:
     ):
         """
         Args:
-            dual_seqs: List of DualSeq instances.
+            dual_seqs: List of DualSeq instances. If None, loaded using data_root and source_data_type.
+            data_root: Root directory of the dataset (required if dual_seqs is None).
+            source_data_type: The source data type to load (e.g. 'text2cad', 'text2caddeepcad').
             description_level: The description level to use for embedding (e.g. 'abstract', 'beginner', 'intermediate', 'expert').
             p: The cluster portion to pick from each cluster.
             k: The number of clusters for KMeans.
@@ -37,10 +41,17 @@ class CoresetCreator:
             device: Device to run the embedding model on (e.g. 'cuda', 'cpu'). If None, automatically determined.
             random_seed: Random seed for KMeans clustering.
         """
-        if len(dual_seqs) == 0:
-            raise ValueError("The dual_seqs list cannot be empty.")
+        if dual_seqs is None:
+            if data_root is None:
+                raise ValueError("Either dual_seqs or data_root must be provided.")
+            from .ref_loader import RefLoader
+            loader = RefLoader(data_root=data_root, source_data_type=source_data_type)
+            self.ref_loader = loader
 
-        self.dual_seqs = dual_seqs
+
+        
+
+        self.dual_seqs = dual_seqs or None
         self.description_level = description_level
         self.p = p
         self.k = k
@@ -127,7 +138,7 @@ class CoresetCreator:
                 f"{safe_model_name}_{selection_method}_seed{self.random_seed}.json"
             )
             save_path = os.path.join("out", "coreset", filename)
-
+        
         if not force_recreate and os.path.exists(save_path):
             print(f"Loading coreset from cached path: {save_path}")
             with open(save_path, "r", encoding="utf-8") as f:
@@ -142,6 +153,13 @@ class CoresetCreator:
                 )
                 coreset.append(ds)
             return coreset
+
+        if self.dual_seqs is None:
+            df = self.ref_loader.load()
+            self.dual_seqs = DualSeq.from_text2cad_df(df)
+
+        if len(dual_seqs) == 0:
+            raise ValueError("The dual_seqs list cannot be empty.")
 
         embeddings = self.get_embeddings()
         num_samples = len(self.dual_seqs)
