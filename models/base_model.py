@@ -43,7 +43,7 @@ class BaseModel(nn.Module):
         self.eos_id = 2
         
         # max_new_cmds fallback
-        self.max_new_cmds = cfg.kwargs.get("max_new_cmds", 1024)
+        self.max_new_cmds = getattr(cfg, "max_new_cmds", 1024)
 
         # 1. Instantiate Encoder
         if cfg.encoder_type not in self.AVAILABLE_ENCODERS:

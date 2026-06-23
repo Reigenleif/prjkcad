@@ -13,17 +13,13 @@ tokenizer:
   source: huggingface
   model_name: t5-small
 model:
-  source: local
-  cls: BaseModel
   is_pretrained: false
   encoder_type: t5-small
   cmd_decoder_type: t5-small
   is_cmd_only: true
   args_decoder_type: null
   d_model: 512
-  kwargs:
-    pretrained_model_name: t5-small
-    max_new_cmds: 128
+  max_new_cmds: 128
 trainer:
   optimizer: AdamW
   optimizer_kwargs:

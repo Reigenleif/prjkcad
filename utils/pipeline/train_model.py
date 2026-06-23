@@ -130,15 +130,7 @@ class TrainModelPipeline:
             val_loader = None
         
         # Wrapper and Model loading
-        if config.model.source == "local":
-            if config.model.cls == "BaseModel":
-                model_cls = BaseModel
-            else:
-                raise ValueError(f"Unsupported model class: {config.model.cls}")
-        elif config.model.source == "huggingface":
-            raise NotImplementedError("Directly loading pretrained model from HuggingFace is not implemented yet. Please set model source to 'local' and load the pretrained model using the wrapper's from_pretrained method.")
-        else:
-            raise ValueError(f"Unsupported model source: {config.model.source}")
+        model_cls = BaseModel
         
         if config.data.is_cmdonly:
             model_kwargs = {"vocab_size": get_dualseq_schema()["n_tokens"], 
@@ -148,8 +140,7 @@ class TrainModelPipeline:
                             "n_args": get_dualseq_schema()["n_args"], 
                             **config.model.kwargs}
             
-        if config.model.cls == "BaseModel":
-            model_kwargs["cfg"] = config.model
+        model_kwargs["cfg"] = config.model
             
         if not config.model.is_pretrained:
             # If the model is not pretrained, initialize the model, then the wrapper

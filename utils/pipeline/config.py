@@ -73,14 +73,15 @@ class TokenizerConfig(_ConfigBase):
 
 @dataclass
 class ModelConfig(_ConfigBase):
-    source: str
-    cls: str
     is_pretrained: bool
+    max_new_cmds: int
     encoder_type: str = "t5-small"
     cmd_decoder_type: str = "t5-small"
     args_decoder_type: Optional[str] = None
     is_cmd_only: bool = False
     d_model: Optional[int] = 512
+    moe_type: Optional[str] = None
+    moe_conf: Optional[str] = None
     kwargs: Dict[str, Any] = field(default_factory=dict)
 
 @dataclass
