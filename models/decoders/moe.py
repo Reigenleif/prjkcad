@@ -19,9 +19,10 @@ class MoEBlock(nn.Module):
         elif moe_conf == "Mixtral":
             self.num_experts = 8
             self.top_k = 2
-        elif moe_conf == "DeepSeek":
-            self.num_experts = 256
-            self.top_k = 8
+        # Disable DeepSeek configuration for now
+        # elif moe_conf == "DeepSeek":
+        #     self.num_experts = 256
+        #     self.top_k = 8
         else:
             raise ValueError(f"Unknown MoE config: {moe_conf}")
             
@@ -34,7 +35,7 @@ class MoEBlock(nn.Module):
     def forward(self, x, *args, **kwargs):
         # x shape: (B, T, D)
         B, T, D = x.shape
-        flat_x = x.view(B * T, D)
+        flat_x = x.contiguous().view(B * T, D)
         
         # Compute router logits and routing weights using softmax
         gate_logits = self.router(flat_x)  # (B * T, num_experts)
@@ -62,7 +63,7 @@ class MoEBlock(nn.Module):
             if self.is_sequence_level:
                 # Sequence-level experts (Attention/Mamba) run on the full sequence, then we slice
                 expert_out = self.experts[i](x, *args, **kwargs)
-                flat_expert_out = expert_out.view(B * T, D)[token_indices]
+                flat_expert_out = expert_out.contiguous().view(B * T, D)[token_indices]
                 routed_out.index_add_(0, token_indices, flat_expert_out * weight)
             else:
                 # Token-wise experts (FFN) run directly on the selected tokens' hidden states
@@ -70,4 +71,4 @@ class MoEBlock(nn.Module):
                 expert_out = self.experts[i](expert_in)
                 routed_out.index_add_(0, token_indices, expert_out * weight)
                 
-        return routed_out.view(B, T, D)
+        return routed_out.contiguous().view(B, T, D)
