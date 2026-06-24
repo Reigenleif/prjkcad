@@ -158,8 +158,8 @@ class CoresetCreator:
             df = self.ref_loader.load()
             self.dual_seqs = DualSeq.from_text2cad_df(df)
 
-        if len(dual_seqs) == 0:
-            raise ValueError("The dual_seqs list cannot be empty.")
+        if len(self.dual_seqs) == 0:
+            raise ValueError("The dual_seqs list cannot be empty, check the data root and source data type.")
 
         embeddings = self.get_embeddings()
         num_samples = len(self.dual_seqs)

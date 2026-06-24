@@ -81,18 +81,23 @@ class TrainModelPipeline:
             raise ValueError(f"Unsupported tokenizer source: {config.tokenizer.source}")
         
         # Raw data loading
-        loader = RefLoader(config.data.data_root,
+        if self.dual_seqs is None :
+            loader = RefLoader(config.data.data_root,
                             max_samples=config.data.max_samples,
                             source_data_type=config.data.source_data_type)
-        df = loader.load()
+            df = loader.load()
+            
+            dual_seqs = DualSeq.from_text2cad_df(df)
         
-        dual_seqs = DualSeq.from_text2cad_df(df)
+            if config.data.sample_ratio:
+                sample_size = int(len(dual_seqs) * config.data.sample_ratio)
+                dual_seqs = random.sample(dual_seqs, sample_size)
+                print(f"Sampled {sample_size} instances from the dataset based on the specified sample ratio of {config.data.sample_ratio}.")
+
+            self.dual_seqs = dual_seqs 
         
-        if config.data.sample_ratio:
-            sample_size = int(len(dual_seqs) * config.data.sample_ratio)
-            dual_seqs = random.sample(dual_seqs, sample_size)
-            print(f"Sampled {sample_size} instances from the dataset based on the specified sample ratio of {config.data.sample_ratio}.")
-        
+        dual_seqs = self.dual_seqs
+
         if USE_VAL:
             if config.data.is_cmdonly:
                 train_loader, val_loader = create_cmdonly_data_loader(dual_seqs,
