@@ -63,3 +63,5 @@ def render_dual_seq_to_img(dual_seq, img_path: str) -> None:
             body = _bool_op(part_solid, body, part["extrude_cmd"])
     if body is not None:
         render_to_image(body, img_path)
+    else :
+        raise ValueError("No body was created from the DualSeq, check the validity of it")

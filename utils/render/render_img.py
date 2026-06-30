@@ -1,91 +1,78 @@
-"""render_img.py: Render OCC shape to isometric PNG via tessellation + matplotlib."""
-import os, tempfile
-import numpy as np
-import matplotlib; matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-from mpl_toolkits.mplot3d.art3d import Poly3DCollection
-import trimesh
-from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
-from OCC.Core.StlAPI import StlAPI_Writer
+"""utils/render/render_img.py: Render OCC shape to isometric PNG using OCC display pipeline."""
+import os
+from OCC.Display.OCCViewer import Viewer3d
+from OCC.Core.gp import gp_Dir
+from OCC.Core.Quantity import Quantity_Color, Quantity_NOC_WHITE, Quantity_TOC_RGB
+from OCC.Core.V3d import V3d_DirectionalLight
+from OCC.Extend.TopologyUtils import TopologyExplorer
 
-
-def _to_triangles(shape, deflection=0.005):
+def render_to_image(
+    shape,
+    filepath: str,
+    size=(512, 512),
+    face_color_rgb=(0.2, 0.2, 0.2),
+    edge_color_rgb=(0, 0, 0),
+    show_face_boundary=True,
+    margin=0.1
+) -> None:
     """
-    Tessellate OCC shape → (N, 3, 3) triangle vertex array.
+    Render a TopoDS_Shape to a high-fidelity isometric PNG using Python-OCC's
+    internal OpenGL rendering pipeline via Viewer3d.
 
-    Steps:
-    1. BRepMesh_IncrementalMesh: discretize shape surface (deflection = accuracy tolerance;
-       smaller = smoother but more triangles)
-    2. StlAPI_Writer: dump tessellation to a temp binary STL file (avoids TopLoc transforms)
-    3. trimesh.load: parse STL → mesh object; return vertices[faces] → (N_tri, 3, xyz)
+    Parameters:
+    -----------
+    shape : TopoDS_Shape
+        The OpenCASCADE shape to render.
+    filepath : str
+        The output path for the saved PNG image.
+    size : tuple of int, optional
+        The width and height of the rendered image (default is (512, 512)).
+    face_color_rgb : tuple of float, optional
+        The RGB values for faces, normalized between 0 and 1.
+    edge_color_rgb : tuple of float, optional
+        The RGB values for edges, normalized between 0 and 1.
+    show_face_boundary : bool, optional
+        Whether to draw face boundaries (default is True).
+    margin : float, optional
+        The margin coefficient for view borders (default is 0.1 for 10% padding).
     """
-    BRepMesh_IncrementalMesh(shape, deflection, False, 0.5)     # Step 1: tessellate
-    tmp = tempfile.NamedTemporaryFile(suffix=".stl", delete=False); tmp.close()
-    writer = StlAPI_Writer()
-    writer.SetASCIIMode(False); writer.Write(shape, tmp.name)   # Step 2: export STL
-    mesh = trimesh.load(tmp.name, force="mesh"); os.unlink(tmp.name)  # Step 3: load
-    if mesh is None or len(mesh.faces) == 0:
-        return np.empty((0, 3, 3))
-    return mesh.vertices[mesh.faces]
+    width, height = size
+    viewer = Viewer3d()
+    viewer.Create(phong_shading=True, create_default_lights=True)
+    viewer.set_bg_gradient_color([255, 255, 255], [255, 255, 255])
+    viewer.SetModeShaded()
+    viewer.hide_triedron()
+    viewer.EnableAntiAliasing()
+    
+    dir_light = V3d_DirectionalLight(gp_Dir(0, 0.5, -1), Quantity_Color(Quantity_NOC_WHITE))
+    dir_light.SetEnabled(True)
+    dir_light.SetIntensity(500.0)
+    viewer.Viewer.AddLight(dir_light)
+    viewer.Viewer.SetLightOn()
 
-
-def _face_normals(triangles):
-    """Compute unit normals for each triangle via cross product of edges."""
-    e1 = triangles[:, 1] - triangles[:, 0]
-    e2 = triangles[:, 2] - triangles[:, 0]
-    n  = np.cross(e1, e2)
-    norms = np.linalg.norm(n, axis=1, keepdims=True)
-    norms = np.where(norms == 0, 1.0, norms)
-    return n / norms
-
-
-def render_to_image(shape, filepath, size=(512, 512)):
-    """
-    Render OCC shape to a solid grey isometric PNG (CAD-preview style) at filepath.
-
-    Steps:
-    1. Tessellate shape to (N,3,3) triangle array via STL intermediate
-    2. Set up matplotlib 3D axes with orthographic projection (no perspective distortion)
-    3. Apply standard isometric angles: elevation=35.264°, azimuth=45°
-       (equal foreshortening on all 3 world axes → true isometric appearance)
-    4. Per-triangle Lambert shading: dot each face normal with a fixed light direction,
-       remap to a grey range [base_grey, highlight_grey], fully opaque — no transparency
-    5. Save PNG
-    """
-    triangles = _to_triangles(shape)
-    dpi = 100
-    fig = plt.figure(figsize=(size[0] / dpi, size[1] / dpi), dpi=dpi)
-    ax  = fig.add_subplot(111, projection="3d")
-    ax.set_axis_off()
-    fig.patch.set_facecolor("#ffffff")          # white background, clean CAD look
-
-    if len(triangles) > 0:
-        ax.view_init(elev=35.264, azim=45)      # Step 3: isometric camera angles
-        ax.set_proj_type("ortho")               # Step 2: orthographic — no near/far shrinkage
-
-        # Step 4: Lambert shading → solid grey faces
-        light_dir = np.array([0.6, 0.4, 1.0])
-        light_dir /= np.linalg.norm(light_dir)
-        normals   = _face_normals(triangles)
-        intensity = np.clip(normals @ light_dir, 0.0, 1.0)  # [0, 1] per triangle
-
-        base      = 0.45    # darkest grey for back faces
-        highlight = 0.95    # brightest grey for lit faces
-        grey      = base + intensity * (highlight - base)   # per-triangle grey value
-
-        face_colors = np.stack([grey, grey, grey, np.ones_like(grey)], axis=1)  # RGBA, alpha=1
-
-        poly = Poly3DCollection(
-            triangles,
-            facecolors=face_colors,
-            edgecolor=(0.3, 0.3, 0.3, 0.15),   # very subtle dark edge lines
-            linewidth=0.1,
-            shade=False)                       # Step 4
-        ax.add_collection3d(poly)               # must be added first — get_proj() needs axes
-        poly.set_facecolor(face_colors)         # Step 4: per-face grey set after axes attach
-        pts = triangles.reshape(-1, 3)
-        ax.auto_scale_xyz(pts[:, 0], pts[:, 1], pts[:, 2])  # equal axis scaling
-
-    plt.tight_layout(pad=0)
-    plt.savefig(filepath, dpi=dpi, bbox_inches="tight")      # Step 5: save PNG
-    plt.close(fig)
+    viewer.default_drawer.EnableDrawHiddenLine()
+    viewer.default_drawer.SetFaceBoundaryDraw(show_face_boundary)
+    ais_context = viewer.GetContext()
+    
+    # Increase tessellation/deviation resolution for smoother rendering
+    dc = ais_context.DeviationCoefficient()
+    da = ais_context.DeviationAngle()
+    factor = 10
+    ais_context.SetDeviationCoefficient(dc / factor)
+    ais_context.SetDeviationAngle(da / factor)
+    
+    topexp = TopologyExplorer(shape)
+    for face in topexp.faces():
+        if face is not None:
+            viewer.DisplayShape(face, color=Quantity_Color(*face_color_rgb, Quantity_TOC_RGB))
+    for edge in topexp.edges():
+        if edge is not None:
+            viewer.DisplayShape(edge, color=Quantity_Color(*edge_color_rgb, Quantity_TOC_RGB))
+            
+    viewer.SetSize(width, height)
+    viewer.View.FitAll(margin)
+    viewer.View.ZFitAll()
+    
+    os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
+    print("dasdasd")
+    viewer.View.Dump(str(filepath))

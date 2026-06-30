@@ -1,4 +1,3 @@
-"""coord_system.py: Build OCC gp_Ax3 coordinate system from COOR token args."""
 import numpy as np
 from OCC.Core.gp import gp_Ax3, gp_Pnt, gp_Dir
 
