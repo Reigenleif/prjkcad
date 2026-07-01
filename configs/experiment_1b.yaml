@@ -6,7 +6,7 @@ data:
   sample_ratio: 0.1
   eval_split_ratio: 0.2
   num_workers: 4
-  description_level: abstract
+  description_level: expert
   batch_size: 16
   max_samples: 100000
 tokenizer:
@@ -31,7 +31,7 @@ trainer:
     kwargs:
       lambda_after_pad: 3
       lambda_overgen: 3
-  epochs: 30
+  epochs: 20
   max_new_cmds: 128
   kwargs:
     teacher_forcing_ratio: 1.0
