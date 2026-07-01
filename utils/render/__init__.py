@@ -1,8 +1,9 @@
 """utils/render/__init__.py: DualSeq → isometric PNG."""
-from .coord_system import make_coord_system
-from .sketch2d    import build_face_from_loops
-from .extrude     import extrude_part
-from .render_img  import render_to_image, render_with_text_side_by_side
+from .coord_system    import make_coord_system
+from .sketch2d        import build_face_from_loops
+from .extrude         import extrude_part
+from .render_img      import render_to_image, render_with_text_side_by_side
+from .point_sampling  import sample_shape
 from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Fuse, BRepAlgoAPI_Cut, BRepAlgoAPI_Common
 
 _OPS = {"EXTRUDE_JOIN": BRepAlgoAPI_Fuse, "EXTRUDE_CUT": BRepAlgoAPI_Cut, "EXTRUDE_INTERSECT": BRepAlgoAPI_Common}
@@ -37,6 +38,33 @@ def _parse_parts(cmds, args):
         if i < len(cmds): part["extrude_cmd"], part["extrude_args"] = cmds[i], args[i]; i += 1
         parts.append(part)
     return parts
+
+
+def render_dual_seq_to_shape(cmds, args):
+    """Convert command and argument sequences into an OCC shape, or None on failure."""
+    body = None
+    try:
+        for part in _parse_parts(cmds, args):
+            ea = part["extrude_args"]
+            if ea is None: continue
+            ax3   = make_coord_system(part["coor"])
+            scale = next((ea[k] for k in ea if k.endswith("_scale")), 1.0)
+            dtn   = next((ea[k] for k in ea if k.endswith("_dtn")), 0.0) or 0.0
+            don   = next((ea[k] for k in ea if k.endswith("_don")), 0.0) or 0.0
+            part_solid = None
+            for face_loops in part["faces"]:
+                try:
+                    face3d = build_face_from_loops(face_loops, ax3, scale)
+                    solid  = extrude_part(face3d, ax3, dtn, don, "EXTRUDE_NEW")
+                    part_solid = solid if part_solid is None else BRepAlgoAPI_Fuse(part_solid, solid).Shape()
+                except Exception:
+                    pass
+            if part_solid is not None:
+                body = _bool_op(part_solid, body, part["extrude_cmd"])
+    except Exception:
+        return None
+    return body
+
 
 def render_dual_seq_to_img(dual_seq, img_path: str, with_str: bool = False, with_desc: str = None) -> None:
     """Convert DualSeq → isometric PNG at img_path.

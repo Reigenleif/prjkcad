@@ -408,3 +408,28 @@ class DualSeq:
     def id_to_cmds(id_seq: list[int]) -> list[str]:
         id_to_command = get_dualseq_schema()["id_to_command"]
         return [id_to_command.get(id, "<UNK>") for id in id_seq]
+
+    @classmethod
+    def from_sequences(cls, cmds: list[str], flat_args: list[list[float]], uid: str = "") -> "DualSeq":
+        """Create a DualSeq object from raw predicted command strings and flat arg vectors."""
+        from .schema import DEFAULT_COMMANDS, get_dualseq_schema
+        schema = get_dualseq_schema()
+        
+        decoded_args = []
+        for cmd, arg_vec in zip(cmds, flat_args):
+            arg_dict = {}
+            if cmd in DEFAULT_COMMANDS:
+                slice_info = schema["command_to_slice"].get(cmd)
+                if slice_info:
+                    start, _ = slice_info
+                    for offset, arg_name in enumerate(DEFAULT_COMMANDS[cmd]):
+                        arg_dict[arg_name] = float(arg_vec[start + offset])
+            decoded_args.append(arg_dict)
+            
+        instance = cls.__new__(cls)
+        instance.uid = uid
+        instance.cmds = list(cmds)
+        instance.args = decoded_args
+        instance.descriptions = {}
+        instance.json_object = {"parts": {}}
+        return instance

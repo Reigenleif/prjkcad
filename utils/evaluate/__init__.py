@@ -1,5 +1,8 @@
 from .cmd_evaluation_functions import token_precision_from_cmd_list, token_recall_from_cmd_list, token_f1_from_cmd_list, token_accuracy_from_cmd_list, tokens_accuracy_from_cmd_list
 from .args_evaluation_functions import arg_r2_score, arg_mape
+from .shape_evaluation_functions import invalidity_rate_from_shapes, chamfer_distance_from_shapes
+from utils.dual_seq import DualSeq
+from utils.render import render_dual_seq_to_shape
 
 
 def eval_cmd_only(pred_cmds, gt_cmds):
@@ -39,5 +42,35 @@ def eval_args_only(pred_args, gt_args):
     
     return metrics
 
+def eval_shape(pred_shapes: list, gt_shapes: list, n_u: int = 20, n_v: int = 20) -> dict:
+    """Shape-level evaluation: Invalidity Rate (IR) and mean Chamfer Distance (CD)."""
+    metrics: dict = {}
+    metrics["ir"] = invalidity_rate_from_shapes(pred_shapes)
+
+    cd_values = []
+    for ps, gs in zip(pred_shapes, gt_shapes):
+        if ps is None or gs is None:
+            continue
+        try:
+            cd_values.append(chamfer_distance_from_shapes(ps, gs, n_u=n_u, n_v=n_v))
+        except Exception:
+            pass
+
+    metrics["cd"] = float(sum(cd_values) / len(cd_values)) if cd_values else None
+    return metrics
+
 def eval_cmd_and_args(pred_cmds, gt_cmds, pred_args, gt_args):
-    return {**eval_cmd_only(pred_cmds, gt_cmds), **eval_args_only(pred_args, gt_args)}
+    metrics = {**eval_cmd_only(pred_cmds, gt_cmds), **eval_args_only(pred_args, gt_args)}
+
+    pred_ds = DualSeq.from_sequences(pred_cmds, pred_args)
+    gt_ds = DualSeq.from_sequences(gt_cmds, gt_args)
+
+    pred_shape = render_dual_seq_to_shape(pred_ds.cmds, pred_ds.args)
+    gt_shape = render_dual_seq_to_shape(gt_ds.cmds, gt_ds.args)
+
+    shape_metrics = eval_shape([pred_shape], [gt_shape])
+    metrics["ir"] = shape_metrics["ir"]
+    if shape_metrics.get("cd") is not None:
+        metrics["cd"] = shape_metrics["cd"]
+
+    return metrics

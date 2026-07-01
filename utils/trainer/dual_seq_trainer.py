@@ -139,9 +139,14 @@ class DualSeqTrainer:
             true_args = arg_targets[i].cpu().numpy().tolist()
             cmd_arg_metric_list.append(eval_cmd_and_args(pred_cmds, true_cmds, pred_args, true_args))
 
-        cmd_arg_metrics = {key: float(np.mean([metric[key] for metric in cmd_arg_metric_list])) for key in cmd_arg_metric_list[0].keys()}
-        metrics.update({k : v for k, v in cmd_arg_metrics.items()})
-        return metrics  
+        cmd_arg_metrics = {}
+        if cmd_arg_metric_list:
+            for key in cmd_arg_metric_list[0].keys():
+                vals = [metric[key] for metric in cmd_arg_metric_list if metric.get(key) is not None]
+                if vals:
+                    cmd_arg_metrics[key] = float(np.mean(vals))
+        metrics.update(cmd_arg_metrics)
+        return metrics
 
     
     def save_progression(self, 
@@ -191,16 +196,26 @@ class DualSeqTrainer:
 
             summary: dict[str, float] = {}
             if train_metrics:
-                for key in train_metrics[0].keys():
-                    summary[f"train_{key}"] = float(np.mean([metric[key] for metric in train_metrics]))
+                all_train_keys = set()
+                for m in train_metrics:
+                    all_train_keys.update(m.keys())
+                for key in all_train_keys:
+                    vals = [metric[key] for metric in train_metrics if metric.get(key) is not None]
+                    if vals:
+                        summary[f"train_{key}"] = float(np.mean(vals))
 
             if self.val_loader is not None:
                 eval_metrics: list[dict[str, float]] = []
                 for batch in tqdm(self.val_loader, desc=f"Eval {epoch + 1}/{epochs}"):
                     eval_metrics.append(self.eval_step(batch))
                 if eval_metrics:
-                    for key in eval_metrics[0].keys():
-                        summary[f"val_{key}"] = float(np.mean([metric[key] for metric in eval_metrics]))
+                    all_val_keys = set()
+                    for m in eval_metrics:
+                        all_val_keys.update(m.keys())
+                    for key in all_val_keys:
+                        vals = [metric[key] for metric in eval_metrics if metric.get(key) is not None]
+                        if vals:
+                            summary[f"val_{key}"] = float(np.mean(vals))
 
             history.append(summary)
             if verbose:

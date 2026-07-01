@@ -183,8 +183,13 @@ class DualSeqCMDOnlyTrainer:
                 for batch in tqdm(self.val_loader, desc=f"Eval {epoch + 1}/{epochs}"):
                     eval_metrics.append(self.eval_step(batch))
                 if eval_metrics:
-                    for key in eval_metrics[0].keys():
-                        summary[f"val_{key}"] = float(np.mean([metric[key] for metric in eval_metrics]))
+                    all_keys = set()
+                    for m in eval_metrics:
+                        all_keys.update(m.keys())
+                    for key in all_keys:
+                        vals = [metric[key] for metric in eval_metrics if metric.get(key) is not None]
+                        if vals:
+                            summary[f"val_{key}"] = float(np.mean(vals))
 
             history.append(summary)
             if verbose:
