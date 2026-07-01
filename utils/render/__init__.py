@@ -2,7 +2,7 @@
 from .coord_system import make_coord_system
 from .sketch2d    import build_face_from_loops
 from .extrude     import extrude_part
-from .render_img  import render_to_image
+from .render_img  import render_to_image, render_with_text_side_by_side
 from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Fuse, BRepAlgoAPI_Cut, BRepAlgoAPI_Common
 
 _OPS = {"EXTRUDE_JOIN": BRepAlgoAPI_Fuse, "EXTRUDE_CUT": BRepAlgoAPI_Cut, "EXTRUDE_INTERSECT": BRepAlgoAPI_Common}
@@ -23,10 +23,11 @@ def _parse_parts(cmds, args):
         while i < len(cmds) and not cmds[i].startswith("EXTRUDE_"):
             c = cmds[i]
             if c == "FACE":
-                if cur_face is not None: part["faces"].append(cur_face)
+                if cur_loop: cur_face.append(cur_loop)
+                if cur_face: part["faces"].append(cur_face)
                 cur_face, cur_loop = [], None
             elif c == "LOOP":
-                if cur_loop is not None: cur_face.append(cur_loop)
+                if cur_loop: cur_face.append(cur_loop)
                 cur_loop = []
             elif c in ("LINE", "CIRCLE", "ARC") and cur_loop is not None:
                 cur_loop.append((c, args[i]))
@@ -37,11 +38,20 @@ def _parse_parts(cmds, args):
         parts.append(part)
     return parts
 
-def render_dual_seq_to_img(dual_seq, img_path: str) -> None:
+def render_dual_seq_to_img(dual_seq, img_path: str, with_str: bool = False, with_desc: str = None) -> None:
     """Convert DualSeq → isometric PNG at img_path.
     Per COOR→EXTRUDE_* block: build gp_Ax3 coord system, build 2D sketch faces
     (inner/outer loop detection in sketch2d), extrude each face, union all face
     solids into the PART solid, then apply the EXTRUDE_* boolean onto the running body."""
+    import os
+    import tempfile
+    
+    # Ensure final file path has a valid image extension
+    _, ext = os.path.splitext(img_path)
+    if ext.lower() not in (".png", ".jpg", ".jpeg", ".bmp", ".tiff"):
+        img_path = img_path + ".png"
+
+    # 1. Create the body
     body = None
     for part in _parse_parts(dual_seq.cmds, dual_seq.args):
         ea = part["extrude_args"]
@@ -61,7 +71,37 @@ def render_dual_seq_to_img(dual_seq, img_path: str) -> None:
                 print(f"[render] face skipped: {e}")
         if part_solid is not None:
             body = _bool_op(part_solid, body, part["extrude_cmd"])
+
+    # 2. Save the image
     if body is not None:
-        render_to_image(body, img_path)
+        if with_str or with_desc:
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                tmp_path = tmp.name
+            try:
+                render_to_image(body, tmp_path)
+                
+                text_parts = []
+                if with_desc:
+                    descriptions = getattr(dual_seq, "descriptions", {})
+                    if isinstance(descriptions, dict):
+                        desc_val = descriptions.get(with_desc, "")
+                        if desc_val:
+                            import textwrap
+                            text_parts.append(f"Description ({with_desc}):")
+                            text_parts.append("-" * 60)
+                            text_parts.extend(textwrap.wrap(desc_val, width=60))
+                            text_parts.append("=" * 60)
+                            text_parts.append("")
+                
+                if with_str:
+                    text_parts.append(str(dual_seq))
+                
+                combined_text = "\n".join(text_parts).rstrip("\n")
+                render_with_text_side_by_side(combined_text, tmp_path, img_path)
+            finally:
+                if os.path.exists(tmp_path):
+                    os.remove(tmp_path)
+        else:
+            render_to_image(body, img_path)
     else :
         raise ValueError("No body was created from the DualSeq, check the validity of it")
