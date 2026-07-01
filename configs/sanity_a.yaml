@@ -19,7 +19,7 @@ model:
   is_cmd_only: true
   args_decoder_type: null
   d_model: 512
-  max_new_cmds: 84
+  max_new_cmds: 128
 trainer:
   optimizer: AdamW
   optimizer_kwargs:
@@ -32,7 +32,7 @@ trainer:
       lambda_after_pad: 3
       lambda_overgen: 3
   epochs: 2
-  max_new_cmds: 84
+  max_new_cmds: 128
   kwargs:
     teacher_forcing_ratio: 1
     max_grad_norm: 1.0
