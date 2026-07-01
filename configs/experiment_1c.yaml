@@ -2,7 +2,7 @@ run_name: experiment_1c
 data:
   data_root: data/text2cad
   source_data_type: text2cad
-  is_cmdonly: true
+  is_cmdonly: false
   sample_ratio: 1
   eval_split_ratio: 0.2
   num_workers: 4
@@ -16,18 +16,18 @@ model:
   is_pretrained: false
   encoder_type: t5-small
   cmd_decoder_type: t5-small
-  is_cmd_only: true
-  args_decoder_type: null
+  is_cmd_only: false
+  args_decoder_type: sdpa
   d_model: 512
   max_new_cmds: 128
 trainer:
   optimizer: AdamW
   optimizer_kwargs:
-    lr: 0.0001
+    lr: 1.0e-05
     weight_decay: 0.01
   criterion:
     source: local
-    cls: DualSeqCMDOOnlyCriterion
+    cls: DualSeqCriterion
     kwargs:
       lambda_after_pad: 3
       lambda_overgen: 3
@@ -37,5 +37,5 @@ trainer:
     teacher_forcing_ratio: 1.0
     max_grad_norm: 1.0
     quant_type: fp16
-pretrained_path: out/experiment_1c/checkpoint.pt
+pretrained_path: out/experiment_1b/checkpoint.pt
 random_seed: 42
