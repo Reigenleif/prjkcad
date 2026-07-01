@@ -1,12 +1,45 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from .moe import MoEBlock
+
+class SDPAttention(nn.Module):
+    def __init__(self, d_model, n_heads, head_dim, dropout_p=0.1):
+        super().__init__()
+        self.n_heads = n_heads
+        self.head_dim = head_dim
+        self.dropout_p = dropout_p
+        self.q_proj = nn.Linear(d_model, d_model)
+        self.k_proj = nn.Linear(d_model, d_model)
+        self.v_proj = nn.Linear(d_model, d_model)
+        self.out_proj = nn.Linear(d_model, d_model)
+        
+    def forward(self, query, key, value, attn_mask=None, is_causal=False):
+        B, T, D = query.shape
+        _, T_key, _ = key.shape
+        q = self.q_proj(query).view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
+        k = self.k_proj(key).view(B, T_key, self.n_heads, self.head_dim).transpose(1, 2)
+        v = self.v_proj(value).view(B, T_key, self.n_heads, self.head_dim).transpose(1, 2)
+        
+        if attn_mask is not None:
+            if attn_mask.dtype == torch.bool:
+                attn_mask = ~attn_mask
+            is_causal = False
+            
+        attn_out = F.scaled_dot_product_attention(
+            q, k, v, 
+            attn_mask=attn_mask, 
+            dropout_p=self.dropout_p if self.training else 0.0,
+            is_causal=is_causal
+        )
+        attn_out = attn_out.transpose(1, 2).contiguous().view(B, T, D)
+        return self.out_proj(attn_out)
 
 class SDPADecoderLayer(nn.Module):
     def __init__(self, 
             d_model: int, 
             n_heads: int = 8, 
-            dim_feedforward: int = 2048, 
+            dim_feedforward: int = 768, 
             dropout: float = 0.1,
             moe_type: str = None,
             moe_conf: str = None
@@ -17,51 +50,23 @@ class SDPADecoderLayer(nn.Module):
         self.head_dim = d_model // n_heads
         assert self.head_dim * n_heads == d_model, "d_model must be divisible by n_heads"
 
-        class SDPAAttention(nn.Module):
-            def __init__(self, d_model, n_heads, head_dim, dropout_p=0.1):
-                super().__init__()
-                self.n_heads = n_heads
-                self.head_dim = head_dim
-                self.dropout_p = dropout_p
-                self.q_proj = nn.Linear(d_model, d_model)
-                self.k_proj = nn.Linear(d_model, d_model)
-                self.v_proj = nn.Linear(d_model, d_model)
-                self.out_proj = nn.Linear(d_model, d_model)
-                
-            def forward(self, query, key, value, attn_mask=None):
-                B, T, D = query.shape
-                _, T_key, _ = key.shape
-                q = self.q_proj(query).view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
-                k = self.k_proj(key).view(B, T_key, self.n_heads, self.head_dim).transpose(1, 2)
-                v = self.v_proj(value).view(B, T_key, self.n_heads, self.head_dim).transpose(1, 2)
-                
-                if attn_mask is not None:
-                    if attn_mask.dtype == torch.bool:
-                        float_mask = torch.zeros(attn_mask.shape, device=query.device, dtype=query.dtype)
-                        float_mask.masked_fill_(attn_mask, float('-inf'))
-                    else:
-                        float_mask = attn_mask
-                else:
-                    float_mask = None
-                    
-                attn_out = F.scaled_dot_product_attention(q, k, v, attn_mask=float_mask, dropout_p=self.dropout_p if self.training else 0.0)
-                attn_out = attn_out.transpose(1, 2).contiguous().view(B, T, D)
-                return self.out_proj(attn_out)
-
-        # 1. Self-attention with SDPA
+        # Self-attention with SDPA
         def make_self_attn():
-            return SDPAAttention(d_model, n_heads, self.head_dim, dropout_p=dropout)
+            return SDPAttention(d_model, n_heads, self.head_dim, dropout_p=dropout)
             
-        from .moe import MoEBlock
+        # Cross-attention with SDPA
+        def make_cross_attn():
+            return SDPAttention(d_model, n_heads, self.head_dim, dropout_p=dropout)
+            
         
         if moe_type == "MoA" and moe_conf is not None:
             self.self_attn = MoEBlock(make_self_attn, moe_conf, d_model, is_sequence_level=True)
-            self.cross_attn = MoEBlock(lambda: SDPAAttention(d_model, n_heads, self.head_dim, dropout_p=dropout), moe_conf, d_model, is_sequence_level=True)
+            self.cross_attn = MoEBlock(make_cross_attn, moe_conf, d_model, is_sequence_level=True)
         else:
             self.self_attn = make_self_attn()
-            self.cross_attn = SDPAAttention(d_model, n_heads, self.head_dim, dropout_p=dropout)
+            self.cross_attn = make_cross_attn()
 
-        # 3. Feed Forward
+        # Feed Forward
         def make_ffn():
             return nn.Sequential(
                 nn.Linear(d_model, dim_feedforward),
@@ -83,9 +88,9 @@ class SDPADecoderLayer(nn.Module):
         self.dropout2 = nn.Dropout(dropout)
         self.dropout3 = nn.Dropout(dropout)
 
-    def forward(self, tgt, memory, tgt_mask=None, memory_mask=None):
+    def forward(self, tgt, memory, tgt_mask=None, memory_mask=None, tgt_is_causal=False):
         # 1. Self-attention
-        attn_out = self.self_attn(tgt, tgt, tgt, attn_mask=tgt_mask)
+        attn_out = self.self_attn(tgt, tgt, tgt, attn_mask=tgt_mask, is_causal=tgt_is_causal)
         tgt = self.norm1(tgt + self.dropout1(attn_out))
 
         # 2. Cross-attention
@@ -103,7 +108,16 @@ class SDPATransformerDecoder(nn.Module):
     """
     Transformer Decoder using PyTorch's native Scaled Dot-Product Attention (SDPA).
     """
-    def __init__(self, d_model: int, n_heads: int = 8, n_layers: int = 4, dim_feedforward: int = 2048, max_len: int = 1024, side_embedding: nn.Module = None, moe_type: str = None, moe_conf: str = None):
+    def __init__(self, 
+            d_model: int, 
+            n_heads: int = 8, 
+            n_layers: int = 4, 
+            dim_feedforward: int = 768,
+            max_len: int = 1024, 
+            side_embedding: nn.Module = None, 
+            moe_type: str = None, 
+            moe_conf: str = None
+        ):
         super().__init__()
         self.d_model = d_model
         self.side_embedding = side_embedding
@@ -143,12 +157,21 @@ class SDPATransformerDecoder(nn.Module):
         if encoder_attention_mask is not None:
             memory_key_padding_mask = (encoder_attention_mask == 0).unsqueeze(1).unsqueeze(2) # Shape: B, 1, 1, T_mem
 
-        # Broadcast causal mask to shape: 1, 1, T, T
-        full_tgt_mask = causal_mask.unsqueeze(0).unsqueeze(1)
-        if tgt_key_padding_mask is not None:
-            full_tgt_mask = full_tgt_mask | tgt_key_padding_mask
+        # If we don't have tgt_key_padding_mask, we don't need to materialize causal mask.
+        # We can just let self_attn use is_causal=True!
+        if tgt_key_padding_mask is None:
+            full_tgt_mask = None
+            tgt_is_causal = True
+        else:
+            full_tgt_mask = causal_mask.unsqueeze(0).unsqueeze(1) | tgt_key_padding_mask
+            tgt_is_causal = False
 
         x = tgt_state
         for layer in self.layers:
-            x = layer(x, encoder_hidden_states, tgt_mask=full_tgt_mask, memory_mask=memory_key_padding_mask)
+            x = layer(
+                x, encoder_hidden_states, 
+                tgt_mask=full_tgt_mask, 
+                memory_mask=memory_key_padding_mask,
+                tgt_is_causal=tgt_is_causal
+            )
         return x

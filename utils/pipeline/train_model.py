@@ -147,31 +147,20 @@ class TrainModelPipeline:
             
         model_kwargs["cfg"] = config.model
             
-        if not config.model.is_pretrained:
-            # If the model is not pretrained, initialize the model, then the wrapper
-            model = model_cls(**model_kwargs)
-            # Init wrapper
-            if config.data.is_cmdonly:
-                wrapper = DualSeqCMDOnlyWrapper(model, text_tokenizer)
-            elif not config.data.is_cmdonly:
-                wrapper = DualSeqWrapper(model, text_tokenizer)
+        # Initialize model locally
+        model = model_cls(**model_kwargs)
+        
+        # Load local checkpoint if specified
+        if config.pretrained_path is not None:
+            state_dict = torch.load(config.pretrained_path, map_location="cpu")
+            model.load_state_dict(state_dict)
+            print(f"Loaded model checkpoint from {config.pretrained_path}")
             
+        # Init wrapper
+        if config.data.is_cmdonly:
+            wrapper = DualSeqCMDOnlyWrapper(model, text_tokenizer)
         else:
-            # If the model is pretrained, load the model from the specified path, directly using wrapper
-            if config.data.is_cmdonly:
-                wrapper = DualSeqCMDOnlyWrapper.from_pretrained(
-                    model_cls,
-                    config.pretrained_path,
-                    seq2seq_model_name=config.tokenizer.model_name,
-                    model_kwargs=model_kwargs
-                )
-            elif not config.data.is_cmdonly:
-                wrapper = DualSeqWrapper.from_pretrained(
-                    model_cls,
-                    config.pretrained_path,
-                    seq2seq_model_name=config.tokenizer.model_name,
-                    model_kwargs=model_kwargs
-                )
+            wrapper = DualSeqWrapper(model, text_tokenizer)
             
         # Criterion loading
         if config.trainer.criterion.source == "local":
@@ -252,81 +241,192 @@ class TrainModelPipeline:
         
         return progression
 
-    def plot_progression(self): 
+    def plot_progression(self):
         """
         Plot the training progression/history.
-        Args:
-            progression: Training progression.
-        """
 
+        Layout (2-column grid):
+            Row 0  [full-width] : Loss (Train & Val)
+            Row 1               : Val Perplexity  |  Shape metrics (IR / CD) [if not cmd-only]
+            Row 2               : LINE P/R/F1     |  CIRCLE P/R/F1
+            Row 3               : ARC P/R/F1      |  EXTRUDE P/R/F1 (extrude-filtered)
+            Row 4  [full-width] : Average F1 (sketch tokens)
+            Row 5  [full-width] : Arg Regression R² / MAPE  (cmd+args only)
+        """
         if not self.progression:
             raise ValueError("No training progression found. Please train the model first.")
-        
+
         config = self.cfg
         progression = self.progression
         out_path = f"out/{config.run_name}/progression.png"
+
+        # ── Build data arrays ─────────────────────────────────────────────────
+        vp = {
+            "LINE_precision":    [h.get("val_LINE_precision",    0) for h in progression],
+            "LINE_recall":       [h.get("val_LINE_recall",       0) for h in progression],
+            "LINE_f1":           [h.get("val_LINE_f1",           0) for h in progression],
+            "CIRCLE_precision":  [h.get("val_CIRCLE_precision",  0) for h in progression],
+            "CIRCLE_recall":     [h.get("val_CIRCLE_recall",     0) for h in progression],
+            "CIRCLE_f1":         [h.get("val_CIRCLE_f1",         0) for h in progression],
+            "ARC_precision":     [h.get("val_ARC_precision",     0) for h in progression],
+            "ARC_recall":        [h.get("val_ARC_recall",        0) for h in progression],
+            "ARC_f1":            [h.get("val_ARC_f1",            0) for h in progression],
+            "EXTRUDE_precision": [h.get("val_EXTRUDE_precision", 0) for h in progression],
+            "EXTRUDE_recall":    [h.get("val_EXTRUDE_recall",    0) for h in progression],
+            "EXTRUDE_f1":        [h.get("val_EXTRUDE_f1",        0) for h in progression],
+        }
         
-        viz_keys = {
-            "loss": {
-                "train": [h["train_loss"] for h in progression],
-                "val": [h["val_loss"] for h in progression],
-            },
-            "val_perplexity": {
-                "val": [h["val_perplexity"] for h in progression],
-            },
-            "val_performance": {
-                "LINE_precision": [h.get("val_LINE_precision", 0) for h in progression],
-                "LINE_recall": [h.get("val_LINE_recall", 0) for h in progression],
-                "LINE_f1": [h.get("val_LINE_f1", 0) for h in progression],
-                "CIRCLE_precision": [h.get("val_CIRCLE_precision", 0) for h in progression],
-                "CIRCLE_recall": [h.get("val_CIRCLE_recall", 0) for h in progression],
-                "CIRCLE_f1": [h.get("val_CIRCLE_f1", 0) for h in progression],
-                "ARC_precision": [h.get("val_ARC_precision", 0) for h in progression],
-                "ARC_recall": [h.get("val_ARC_recall", 0) for h in progression],
-                "ARC_f1": [h.get("val_ARC_f1", 0) for h in progression],
-                "EXTRUDE_accuracy": [h.get("val_EXTRUDE_accuracy", 0) for h in progression],
-            }
+        is_full = not config.data.is_cmdonly
+        has_shape_metrics = False
+
+        if is_full:
+            vp["val_arg_r2"]   = [h.get("val_arg_r2",   0) for h in progression]
+            vp["val_arg_mape"] = [h.get("val_arg_mape", 0) for h in progression]
+            vp["val_ir"]       = [h.get("val_ir") for h in progression]
+            vp["val_cd"]       = [h.get("val_cd") for h in progression]
+            has_ir = any(v is not None for v in vp["val_ir"])
+            has_cd = any(v is not None for v in vp["val_cd"])
+            has_shape_metrics = has_ir or has_cd
+
+        train_loss  = [h["train_loss"]      for h in progression]
+        val_loss    = [h["val_loss"]        for h in progression]
+        val_perp    = [h["val_perplexity"]  for h in progression]
+        epochs      = list(range(1, len(progression) + 1))
+        avg_f1      = [(vp["LINE_f1"][i] + vp["CIRCLE_f1"][i] + vp["ARC_f1"][i]) / 3
+                       for i in range(len(epochs))]
+
+        # ── Grid layout ───────────────────────────────────────────────────────
+        n_rows = 5 + int(is_full)
+        fig = plt.figure(figsize=(12, 3.0 * n_rows))
+        gs  = fig.add_gridspec(n_rows, 2, hspace=0.50, wspace=0.30)
+
+        # ── Color palette ─────────────────────────────────────────────────────
+        C = {
+            "train":    "#4C72B0",
+            "val":      "#DD8452",
+            "prec":     "#1F77B4",   # blue   – Precision
+            "rec":      "#FF7F0E",   # orange – Recall
+            "f1":       "#2CA02C",   # green  – F1
+            "avg_f1":   "#C44E52",   # red    – Avg F1
+            "ir":       "#9467BD",   # purple – Invalidity Rate
+            "cd":       "#8C564B",   # brown  – Chamfer Distance
+            "arg_r2":   "#937860",
+            "arg_mape": "#DA8BC3",
         }
 
-        if not config.data.is_cmdonly:
-            viz_keys["val_performance"] = {
-                **viz_keys["val_performance"],
-                "val_arg_mape": [h.get("val_arg_mape", 0) for h in progression],
-                "val_arg_r2": [h.get("val_arg_r2", 0) for h in progression],   
-            }
+        # ── Helpers ───────────────────────────────────────────────────────────
+        def _style(ax, title, ylabel=None, ylim=None):
+            ax.set_title(title, fontsize=11, fontweight="bold", pad=6)
+            ax.set_xlabel("Epoch", fontsize=9)
+            if ylabel:
+                ax.set_ylabel(ylabel, fontsize=9)
+            if ylim:
+                ax.set_ylim(*ylim)
+            ax.grid(True, linestyle="--", linewidth=0.5, alpha=0.45)
+            ax.tick_params(labelsize=8)
+            ax.spines[["top", "right"]].set_visible(False)
+            leg = ax.legend(fontsize=8, framealpha=0.7, loc="best")
+            if leg:
+                leg.get_frame().set_linewidth(0.5)
 
-        fig, ax = plt.subplots(3, 1, 
-                                figsize=(10, 8), 
-                                gridspec_kw={"height_ratios": [1, 1, 2]})
+        def _plot_prf(ax, key, title):
+            """Plot Precision (dashed), Recall (dotted), F1 (solid) for `key`."""
+            ax.plot(epochs, vp[f"{key}_precision"], color=C["prec"], label="Precision",
+                    linewidth=1.2, linestyle="--")
+            ax.plot(epochs, vp[f"{key}_recall"],    color=C["rec"],  label="Recall",
+                    linewidth=1.2, linestyle=":")
+            ax.plot(epochs, vp[f"{key}_f1"],        color=C["f1"],   label="F1",
+                    linewidth=1.5)
+            _style(ax, title, ylabel="Score", ylim=(0, 1))
 
-        ax[0].plot(viz_keys["loss"]["train"], label="Train Loss")
-        ax[0].plot(viz_keys["loss"]["val"], label="Val Loss")
-        ax[0].set_title("Loss")
+        # ── Row 0 – Loss (full-width) ─────────────────────────────────────────
+        ax_loss = fig.add_subplot(gs[0, :])
+        ax_loss.plot(epochs, train_loss, color=C["train"], label="Train", linewidth=1.5)
+        ax_loss.plot(epochs, val_loss,   color=C["val"],   label="Val",   linewidth=1.5, linestyle="--")
+        _style(ax_loss, "Loss", ylabel="Loss")
 
-        ax[1].plot(viz_keys["val_perplexity"]["val"], label="Val Perplexity")
-        ax[1].set_title("Validation Perplexity")
+        # ── Row 1 – Perplexity | Shape metrics ───────────────────────────────
+        if is_full:
+            ax_perp  = fig.add_subplot(gs[1, 0])
+            ax_shape = fig.add_subplot(gs[1, 1])
+            ax_perp.plot(epochs, val_perp, color=C["val"], linewidth=1.5, label="Val Perplexity")
+            _style(ax_perp, "Validation Perplexity", ylabel="Perplexity")
 
-        ax[2].plot(viz_keys["val_performance"]["LINE_precision"], label="LINE Precision")
-        ax[2].plot(viz_keys["val_performance"]["LINE_recall"], label="LINE Recall")
-        ax[2].plot(viz_keys["val_performance"]["LINE_f1"], label="LINE F1")
-        ax[2].plot(viz_keys["val_performance"]["CIRCLE_precision"], label="CIRCLE Precision")
-        ax[2].plot(viz_keys["val_performance"]["CIRCLE_recall"], label="CIRCLE Recall")
-        ax[2].plot(viz_keys["val_performance"]["CIRCLE_f1"], label="CIRCLE F1")
-        ax[2].plot(viz_keys["val_performance"]["ARC_precision"], label="ARC Precision")
-        ax[2].plot(viz_keys["val_performance"]["ARC_recall"], label="ARC Recall")
-        ax[2].plot(viz_keys["val_performance"]["ARC_f1"], label="ARC F1")
-        ax[2].plot(viz_keys["val_performance"]["EXTRUDE_accuracy"], label="EXTRUDE Accuracy")
-        if not config.data.is_cmdonly:
-            ax[2].plot(viz_keys["val_performance"]["val_arg_r2"], label="Val Arg R2")
+            if has_shape_metrics:
+                shape_lines, shape_labels = [], []
+                if has_ir:
+                    ir_vals = [v for v in vp["val_ir"]]
+                    ir_plot = [v if v is not None else float("nan") for v in ir_vals]
+                    ax_shape.plot(epochs, ir_plot, color=C["ir"], label="IR ↓", linewidth=1.5)
+                    ax_shape.set_ylabel("IR", fontsize=9, color=C["ir"])
+                    ax_shape.tick_params(axis="y", colors=C["ir"], labelsize=8)
+                    shape_lines += ax_shape.get_legend_handles_labels()[0]
+                    shape_labels += ax_shape.get_legend_handles_labels()[1]
+                if has_cd:
+                    cd_vals = [v for v in vp["val_cd"]]
+                    cd_plot = [v if v is not None else float("nan") for v in cd_vals]
+                    ax_cd = ax_shape.twinx()
+                    ax_cd.plot(epochs, cd_plot, color=C["cd"], label="CD ↓", linewidth=1.5, linestyle="--")
+                    ax_cd.set_ylabel("CD", fontsize=9, color=C["cd"])
+                    ax_cd.tick_params(axis="y", colors=C["cd"], labelsize=8)
+                    ax_cd.spines[["top"]].set_visible(False)
+                    shape_lines += ax_cd.get_legend_handles_labels()[0]
+                    shape_labels += ax_cd.get_legend_handles_labels()[1]
+                ax_shape.legend(shape_lines, shape_labels, fontsize=8, framealpha=0.7, loc="best")
+                ax_shape.set_title("Shape Metrics (IR / CD)", fontsize=11, fontweight="bold", pad=6)
+                ax_shape.set_xlabel("Epoch", fontsize=9)
+                ax_shape.set_ylim(0, 1)
+                ax_shape.grid(True, linestyle="--", linewidth=0.5, alpha=0.45)
+                ax_shape.spines[["top", "right"]].set_visible(False)
+            else:
+                ax_shape.axis("off")
+                ax_shape.text(0.5, 0.5, "Shape metrics\n(val_ir / val_cd)\nnot yet available",
+                              ha="center", va="center", fontsize=9, color="gray",
+                              transform=ax_shape.transAxes)
+        else:
+            ax_perp = fig.add_subplot(gs[1, :])
+            ax_perp.plot(epochs, val_perp, color=C["val"], linewidth=1.5, label="Val Perplexity")
+            _style(ax_perp, "Validation Perplexity", ylabel="Perplexity")
 
-        ax[2].set_title("Validation Performance Summary")
-        ax[2].legend(loc="center left", bbox_to_anchor=(1, 0.5))
+        # ── Row 2 – LINE | CIRCLE ─────────────────────────────────────────────
+        _plot_prf(fig.add_subplot(gs[2, 0]), "LINE",   "LINE Metrics")
+        _plot_prf(fig.add_subplot(gs[2, 1]), "CIRCLE", "CIRCLE Metrics")
 
-        plt.tight_layout()
+        # ── Row 3 – ARC | EXTRUDE ────────────────────────────────────────────
+        _plot_prf(fig.add_subplot(gs[3, 0]), "ARC",     "ARC Metrics")
+        _plot_prf(fig.add_subplot(gs[3, 1]), "EXTRUDE", "EXTRUDE Metrics\n(extrude-only filtered)")
+
+        # ── Row 4 – Avg F1 (full-width) ───────────────────────────────────────
+        ax_avg = fig.add_subplot(gs[4, :])
+        ax_avg.plot(epochs, avg_f1, color=C["avg_f1"], linewidth=2.0,
+                    label="Avg F1 (LINE + CIRCLE + ARC)")
+        _style(ax_avg, "Average F1 (Sketch Tokens)", ylabel="F1", ylim=(0, 1))
+
+        # ── Row 5 – Arg Regression (full-width, cmd+args only) ───────────────
+        if is_full:
+            ax_args = fig.add_subplot(gs[5, :])
+            ax_args.plot(epochs, vp["val_arg_r2"], color=C["arg_r2"], label="Arg R²", linewidth=1.5)
+            ax_args.set_ylabel("R²", fontsize=9, color=C["arg_r2"])
+            ax_args.tick_params(axis="y", colors=C["arg_r2"], labelsize=8)
+            ax_args.grid(True, linestyle="--", linewidth=0.5, alpha=0.45)
+            ax_args.spines[["top", "right"]].set_visible(False)
+            ax_args.set_xlabel("Epoch", fontsize=9)
+            ax_args.set_title("Argument Regression Metrics", fontsize=11, fontweight="bold", pad=6)
+            ax_mape = ax_args.twinx()
+            ax_mape.plot(epochs, vp["val_arg_mape"], color=C["arg_mape"],
+                         label="Arg MAPE", linewidth=1.5, linestyle="--")
+            ax_mape.set_ylabel("MAPE", fontsize=9, color=C["arg_mape"])
+            ax_mape.tick_params(axis="y", colors=C["arg_mape"], labelsize=8)
+            ax_mape.spines[["top"]].set_visible(False)
+            lines1, labels1 = ax_args.get_legend_handles_labels()
+            lines2, labels2 = ax_mape.get_legend_handles_labels()
+            ax_args.legend(lines1 + lines2, labels1 + labels2, fontsize=8, framealpha=0.7, loc="best")
+
+        fig.suptitle(f"Training Progression: {config.run_name}", fontsize=13, fontweight="bold")
         plt.show()
-        
+
         if out_path is not None:
-            fig.savefig(out_path)
+            fig.savefig(out_path, bbox_inches="tight", dpi=120)
 
 
 def merge_best_epochs(out_dir: str = "out", output_path: str = "out/best_merged.csv") -> pd.DataFrame:
