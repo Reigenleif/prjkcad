@@ -62,6 +62,7 @@ def _command_tokenizer(cmds: list[str], dualseq_schema: dict[str, dict[str, str|
         if cmd not in dualseq_schema["command_to_id"] :
             raise ValueError(f"Unknown command: {cmd}")
         tokenized_cmds.append(int(dualseq_schema["command_to_id"][cmd]))
+    tokenized_cmds.append(int(dualseq_schema["eos_id"]))
     return tokenized_cmds
     
     

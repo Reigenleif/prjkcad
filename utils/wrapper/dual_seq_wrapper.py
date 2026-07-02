@@ -3,6 +3,7 @@ import torch
 from typing import Any, Tuple
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 from utils.dual_seq import get_dualseq_schema
+from models import BaseModel
 
 class DualSeqWrapper(torch.nn.Module):
     """A wrapper for the full DualSeq models for inference and training"""
@@ -44,13 +45,16 @@ class DualSeqWrapper(torch.nn.Module):
 
         if is_teacher_forcing:
             # Decoder input: [SOS, c0, c1, ...] (right-shift by 1)
+            # Truncate target length to max_new_cmds - 1 to obey the positional embedding limits of the decoder
+            cmd_targets_limited = cmd_targets[:, :self.max_new_cmds - 1]
             sos = torch.full((B, 1), self.model.sos_id, device=device, dtype=cmd_targets.dtype)
-            decoder_input_ids = torch.cat([sos, cmd_targets[:, :-1]], dim=1)
+            decoder_input_ids = torch.cat([sos, cmd_targets_limited], dim=1)
 
             # Decoder arg input: [zeros, a0, a1, ...] (right-shift by 1)
             n_args = arg_targets.size(-1)
             zero_args = torch.zeros((B, 1, n_args), device=device, dtype=arg_targets.dtype)
-            decoder_input_args = torch.cat([zero_args, arg_targets[:, :-1, :]], dim=1)
+            arg_targets_limited = arg_targets[:, :self.max_new_cmds - 1, :]
+            decoder_input_args = torch.cat([zero_args, arg_targets_limited], dim=1)
 
             cmd_logits, arg_preds, _ = self.model(
                 input_ids=input_ids,
@@ -187,17 +191,43 @@ class DualSeqWrapper(torch.nn.Module):
     @classmethod
     def from_pretrained(cls, 
                         model_cls,
-                        pretrained_model_path, 
+                        pretrained_model_path=None, 
                         seq2seq_model_name="t5-small", 
                         device="cuda" if torch.cuda.is_available() else "cpu", 
                         model_kwargs: dict[str, Any] = None):
-        
+        if isinstance(model_cls, str):
+            pretrained_model_path = model_cls
+            model_cls = BaseModel
+
+        if pretrained_model_path is None:
+            raise ValueError("pretrained_model_path must be specified.")
+
+        # Resolve checkpoint path
+        if os.path.isdir(pretrained_model_path):
+            checkpoint_file = os.path.join(pretrained_model_path, "checkpoint.pt")
+            if not os.path.exists(checkpoint_file):
+                checkpoint_file = os.path.join(pretrained_model_path, "model.pt")
+            pretrained_model_path = checkpoint_file
+
+        # Instantiate Tokenizer
         hf_tokenizer = AutoTokenizer.from_pretrained(seq2seq_model_name)
         model: torch.nn.Module = model_cls(**(model_kwargs or {}))
         
         state_dict = torch.load(pretrained_model_path, map_location="cpu")
-        model.load_state_dict(state_dict)
-        
+        first_key = next(iter(state_dict.keys()))
+        if first_key.startswith("model."):
+            state_dict = {k[6:]: v for k, v in state_dict.items()}
+
+        # Load Weights
+        missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
+        if missing_keys or unexpected_keys:
+            print("Warnings during load_state_dict:")
+            if missing_keys:
+                print(f"  Missing keys: {missing_keys}")
+            if unexpected_keys:
+                print(f"  Unexpected keys: {unexpected_keys}")
+
+        # Instantiate Wrapper
         wrapper = cls(model=model, text_tokenizer=hf_tokenizer, device=device)
         print(f"Model loaded from {pretrained_model_path}")
         return wrapper

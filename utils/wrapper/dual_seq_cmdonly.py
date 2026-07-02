@@ -2,6 +2,7 @@ import os
 
 import torch
 from typing import Any, Mapping, Callable
+from models import BaseModel
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 from utils.dual_seq import get_dualseq_schema
 
@@ -36,8 +37,10 @@ class DualSeqCMDOnlyWrapper(torch.nn.Module):
         
         if is_teacher_forcing:
             # Build decoder inputs: [SOS, c0, c1, c2, ...]
+            # Truncate target length to max_new_cmds - 1 to obey the positional embedding limits of the decoder
+            cmds_limited = cmds[:, :self.max_new_cmds - 1]
             sos = torch.full((B, 1), self.model.sos_id, device=device, dtype=cmds.dtype)
-            decoder_input_ids = torch.cat([sos, cmds[:, :-1]], dim=1)
+            decoder_input_ids = torch.cat([sos, cmds_limited], dim=1)
 
             logits, _ = self.model(
                 input_ids=input_ids,
@@ -97,10 +100,10 @@ class DualSeqCMDOnlyWrapper(torch.nn.Module):
         id_to_command = {v: k for k, v in self.dual_seq_schema["command_to_id"].items()}
         generated_cmds = []
         for token_id in preds[0].tolist():
-            if token_id == self.model.pad_id:
+            if token_id in (self.model.pad_id, self.model.eos_id):
                 break
             command_name = id_to_command.get(token_id, None)
-            if command_name is not None:
+            if command_name is not None and command_name not in ("SOS", "EOS", "PAD"):
                 generated_cmds.append(command_name)
             if len(generated_cmds) >= max_new_tokens:
                 break
@@ -118,36 +121,44 @@ class DualSeqCMDOnlyWrapper(torch.nn.Module):
     @classmethod
     def from_pretrained(cls, 
                         model_cls,
-                        pretrained_model_path, 
+                        pretrained_model_path=None, 
                         seq2seq_model_name="t5-small", 
                         device="cuda" if torch.cuda.is_available() else "cpu", 
                         model_kwargs: dict[str, Any] = None):
         """
         Loads model from the specified folder path and pretrained model name.
         """
-        
-        
-        hf_model = AutoModelForSeq2SeqLM.from_pretrained(seq2seq_model_name)
+        if isinstance(model_cls, str):
+            pretrained_model_path = model_cls
+            model_cls = BaseModel
+
+        if pretrained_model_path is None:
+            raise ValueError("pretrained_model_path must be specified.")
+
+        if os.path.isdir(pretrained_model_path):
+            checkpoint_file = os.path.join(pretrained_model_path, "checkpoint.pt")
+            if not os.path.exists(checkpoint_file):
+                checkpoint_file = os.path.join(pretrained_model_path, "model.pt")
+            pretrained_model_path = checkpoint_file
+
         hf_tokenizer = AutoTokenizer.from_pretrained(seq2seq_model_name)
-        
-        # Extract the encoder and decoder from the pretrained model
-        encoder = hf_model.get_encoder()
-        decoder = hf_model.get_decoder()
-        
-        # Initialize the model with the pretrained encoder and decoder
-        model: torch.nn.Module = model_cls(
-            **(model_kwargs or {})
-        )
-        
-        text_tokenizer = hf_tokenizer
+        model: torch.nn.Module = model_cls(**(model_kwargs or {}))
         
         # Load the saved state dict
         state_dict = torch.load(pretrained_model_path, map_location="cpu")
-        model.load_state_dict(state_dict)
+        first_key = next(iter(state_dict.keys()))
+        if first_key.startswith("model."):
+            state_dict = {k[6:]: v for k, v in state_dict.items()}
+
+        missing_keys, unexpected_keys = model.load_state_dict(state_dict, strict=False)
+        if missing_keys or unexpected_keys:
+            print("Warnings during load_state_dict:")
+            if missing_keys:
+                print(f"  Missing keys: {missing_keys}")
+            if unexpected_keys:
+                print(f"  Unexpected keys: {unexpected_keys}")
         
-        wrapper = cls(model=model, text_tokenizer=text_tokenizer)
-        wrapper.to(device)
-    
+        wrapper = cls(model=model, text_tokenizer=hf_tokenizer, device=device)
         print(f"Model loaded from {pretrained_model_path}")
         return wrapper
         

@@ -40,9 +40,11 @@ def _command_and_args_tokenizer(cmds: list[str], args: list[dict], dualseq_schem
     command_to_id = dualseq_schema["command_to_id"]
     arg_name_to_id = dualseq_schema["arg_name_to_id"]
     n_args = dualseq_schema["n_args"]
+    eos_id = dualseq_schema["eos_id"]
 
     tokenized_cmds: list[int] = []
-    tensor_args = torch.zeros((len(cmds), n_args), dtype=torch.float32)
+    # Add +1 row for EOS token in tensor_args
+    tensor_args = torch.zeros((len(cmds) + 1, n_args), dtype=torch.float32)
 
     for i, (cmd, cmd_args_dict) in enumerate(zip(cmds, args)):
         if cmd not in command_to_id:
@@ -54,6 +56,8 @@ def _command_and_args_tokenizer(cmds: list[str], args: list[dict], dualseq_schem
             if slot is not None:
                 tensor_args[i, slot] = val if val is not None else 0.0
 
+    # Append EOS token to commands
+    tokenized_cmds.append(eos_id)
     return tokenized_cmds, tensor_args
 
 def _collate_fn(batch: list[tuple[str, list[str], list[dict]]], 
