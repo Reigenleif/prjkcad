@@ -78,7 +78,12 @@ class DualSeqCMDOnlyTrainer:
 
     def _loss(self, outputs, batch):
         logits = outputs[0] if isinstance(outputs, tuple) else outputs
-        return self.criterion(logits, batch[1])
+        # Trim targets if outputs are shorter (due to max_new_cmds truncation)
+        T_out = logits.size(1)
+        cmds = batch[1]
+        if cmds.size(1) > T_out:
+            cmds = cmds[:, :T_out]
+        return self.criterion(logits, cmds)
 
     def train_step(self, batch: Tuple, ratio: float):
         
@@ -220,7 +225,8 @@ class DualSeqCMDOnlyTrainer:
             raise ValueError(f"Quantization with type {self.quant_type} is only supported on CUDA devices.")
         
         if self.quant_type == "fp16" :
-            with torch.amp.autocast("cuda", dtype=torch.float16):
+            dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+            with torch.amp.autocast("cuda", dtype=dtype):
                 return self.fit(epochs=epochs, verbose=verbose)
         
         return self.fit(epochs=epochs, verbose=verbose)

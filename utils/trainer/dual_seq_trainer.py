@@ -81,6 +81,13 @@ class DualSeqTrainer:
         # batch = (input_ids, cmd_targets, arg_targets, attention_mask)
         cmd_logits, cmd_preds, arg_preds = outputs
         _, cmd_targets, arg_targets, _ = batch
+        
+        # Trim targets if outputs are shorter (due to max_new_cmds truncation)
+        T_out = cmd_logits.size(1)
+        if cmd_targets.size(1) > T_out:
+            cmd_targets = cmd_targets[:, :T_out]
+            arg_targets = arg_targets[:, :T_out, :]
+            
         return self.criterion(
             cmd_logits,
             cmd_targets,
@@ -135,7 +142,7 @@ class DualSeqTrainer:
         for i in range(batch[1].shape[0]):
             pred_cmds = [schema.get(id, '<UNK>') for id in preds[i].cpu().numpy().tolist()]
             true_cmds = [schema.get(id, '<UNK>') for id in batch[1][i].cpu().numpy().tolist()]
-            pred_args = arg_preds[i].cpu().numpy().tolist()
+            pred_args = arg_preds[i].float().cpu().numpy().tolist()
             true_args = arg_targets[i].cpu().numpy().tolist()
             cmd_arg_metric_list.append(eval_cmd_and_args(pred_cmds, true_cmds, pred_args, true_args))
 
@@ -246,7 +253,8 @@ class DualSeqTrainer:
             raise ValueError(f"Quantization with type {self.quant_type} is only supported on CUDA devices.")
         
         if self.quant_type == "fp16" :
-            with torch.amp.autocast("cuda", dtype=torch.float16):
+            dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+            with torch.amp.autocast("cuda", dtype=dtype):
                 return self.fit(epochs=epochs, verbose=verbose)
         
         return self.fit(epochs=epochs, verbose=verbose)
