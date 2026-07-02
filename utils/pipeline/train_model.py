@@ -227,17 +227,42 @@ class TrainModelPipeline:
         
         # inference test for ten random samples
         rand_idxs = torch.randperm(len(self.dual_seqs))[:10]
-        results = [
-            {
-                "input": self.dual_seqs[i].descriptions[self.cfg.data.description_level],
+        results = []
+        for i in rand_idxs.tolist():
+            desc = self.dual_seqs[i].descriptions[self.cfg.data.description_level]
+            gen_cmds = self.wrapper.generate(desc, max_new_tokens=self.cfg.trainer.max_new_cmds)
+            results.append({
+                "input": desc,
                 "target_cmds": self.dual_seqs[i].cmds,
-                "generated_cmds": self.wrapper.generate(self.dual_seqs[i].descriptions[self.cfg.data.description_level], 
-                                                max_new_tokens=self.cfg.trainer.max_new_cmds)
-            } for i in rand_idxs.tolist()
-        ]
+                "generated_cmds": gen_cmds
+            })
+            
         # save to csv
         results_df = pd.DataFrame(results)
         results_df.to_csv(self.TEST_RESULT_PATH, index=False)
+
+        # render generated cmds and args to images
+        if not self.cfg.model.is_cmd_only:
+            from utils.render import render_dual_seq_to_img
+            from tqdm import tqdm
+            os.makedirs(self.RENDER_RESULTS_PATH, exist_ok=True)
+            print(f"Rendering generated designs to {self.RENDER_RESULTS_PATH}...")
+            for idx, res in enumerate(tqdm(results, desc="Rendering generated shapes")):
+                gen_seq = res["generated_cmds"]
+                desc = res["input"]
+                
+                # Construct a DualSeq
+                gen_dual_seq = DualSeq.__new__(DualSeq)
+                gen_dual_seq.uid = f"gen_{idx}"
+                gen_dual_seq.cmds = [item[0] for item in gen_seq]
+                gen_dual_seq.args = [item[1] for item in gen_seq]
+                gen_dual_seq.descriptions = {self.cfg.data.description_level: desc}
+                
+                img_path = os.path.join(self.RENDER_RESULTS_PATH, f"sample_{idx}.png")
+                try:
+                    render_dual_seq_to_img(gen_dual_seq, img_path, with_str=True, with_desc=self.cfg.data.description_level)
+                except Exception as e:
+                    print(f"Error rendering generated sample {idx}: {e}")
         
         return progression
 

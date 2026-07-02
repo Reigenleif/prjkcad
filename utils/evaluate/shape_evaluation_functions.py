@@ -11,21 +11,6 @@ import numpy as np
 from scipy.spatial import cKDTree
 
 def invalidity_rate_from_shapes(shapes: list) -> float:
-    """Compute the Invalidity Rate (IR) for a list of OCC shapes.
-
-    A shape is considered *invalid* when it is ``None`` (i.e., rendering
-    failed or produced no solid body).
-
-    Parameters
-    ----------
-    shapes : list
-        List of TopoDS_Shape objects (or ``None`` for failed renders).
-
-    Returns
-    -------
-    float
-        Fraction of invalid shapes ∈ [0, 1]. Returns 0.0 for an empty list.
-    """
     if not shapes:
         return 0.0
     n_invalid = sum(1 for s in shapes if s is None)
@@ -33,24 +18,6 @@ def invalidity_rate_from_shapes(shapes: list) -> float:
 
 
 def invalidity_rate_from_dual_seqs(dual_seqs: list, render_fn) -> float:
-    """Compute the Invalidity Rate (IR) by attempting to render each DualSeq.
-
-    Each DualSeq is passed to ``render_fn`` which should return a
-    TopoDS_Shape or raise an exception / return ``None`` on failure.
-
-    Parameters
-    ----------
-    dual_seqs : list
-        Collection of DualSeq objects to evaluate.
-    render_fn : callable
-        Function ``render_fn(dual_seq) -> TopoDS_Shape | None``.
-        Should return ``None`` (or raise) when rendering fails.
-
-    Returns
-    -------
-    float
-        Invalidity Rate ∈ [0, 1].
-    """
     if not dual_seqs:
         return 0.0
 

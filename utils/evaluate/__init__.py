@@ -46,7 +46,8 @@ def eval_shape(pred_shapes: list, gt_shapes: list, n_u: int = 20, n_v: int = 20)
     """Shape-level evaluation: Invalidity Rate (IR) and mean Chamfer Distance (CD)."""
     metrics: dict = {}
     metrics["ir"] = invalidity_rate_from_shapes(pred_shapes)
-
+    return metrics
+    
     cd_values = []
     for ps, gs in zip(pred_shapes, gt_shapes):
         if ps is None or gs is None:
@@ -61,6 +62,7 @@ def eval_shape(pred_shapes: list, gt_shapes: list, n_u: int = 20, n_v: int = 20)
 
 def eval_cmd_and_args(pred_cmds, gt_cmds, pred_args, gt_args):
     metrics = {**eval_cmd_only(pred_cmds, gt_cmds), **eval_args_only(pred_args, gt_args)}
+    return metrics
 
     pred_ds = DualSeq.from_sequences(pred_cmds, pred_args)
     gt_ds = DualSeq.from_sequences(gt_cmds, gt_args)
