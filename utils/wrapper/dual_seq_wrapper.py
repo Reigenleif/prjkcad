@@ -2,15 +2,16 @@ import os
 import torch
 from typing import Any, Tuple
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from utils.dual_seq import get_dualseq_schema
 from models import BaseModel
 
 class DualSeqWrapper(torch.nn.Module):
     """A wrapper for the full DualSeq models for inference and training"""
-    
+
     def __init__(self, 
                  model: torch.nn.Module,
-                 text_tokenizer,
+                 text_tokenizer: PreTrainedTokenizerBase,
                  device="cuda" if torch.cuda.is_available() else "cpu"
     ):
         super().__init__()
@@ -44,17 +45,18 @@ class DualSeqWrapper(torch.nn.Module):
         )
 
         if is_teacher_forcing:
-            # Decoder input: [SOS, c0, c1, ...] (right-shift by 1)
-            # Truncate target length to max_new_cmds - 1 to obey the positional embedding limits of the decoder
-            cmd_targets_limited = cmd_targets[:, :self.max_new_cmds - 1]
+            # Decoder input: [SOS, c0, c1, ...] (right-shift by 1, preserving length)
+            # Truncate target length to max_new_cmds to obey the positional embedding limits of the decoder
+            T = min(cmd_targets.size(1), self.max_new_cmds)
+            cmd_targets_limited = cmd_targets[:, :T]
             sos = torch.full((B, 1), self.model.sos_id, device=device, dtype=cmd_targets.dtype)
-            decoder_input_ids = torch.cat([sos, cmd_targets_limited], dim=1)
+            decoder_input_ids = torch.cat([sos, cmd_targets_limited[:, :-1]], dim=1)
 
-            # Decoder arg input: [zeros, a0, a1, ...] (right-shift by 1)
+            # Decoder arg input: [zeros, a0, a1, ...] (right-shift by 1, preserving length)
             n_args = arg_targets.size(-1)
             zero_args = torch.zeros((B, 1, n_args), device=device, dtype=arg_targets.dtype)
-            arg_targets_limited = arg_targets[:, :self.max_new_cmds - 1, :]
-            decoder_input_args = torch.cat([zero_args, arg_targets_limited], dim=1)
+            arg_targets_limited = arg_targets[:, :T, :]
+            decoder_input_args = torch.cat([zero_args, arg_targets_limited[:, :-1, :]], dim=1)
 
             cmd_logits, arg_preds, _ = self.model(
                 input_ids=input_ids,
@@ -113,7 +115,11 @@ class DualSeqWrapper(torch.nn.Module):
         device = next(self.model.parameters()).device
         
         # Tokenize input text
-        input_ids = torch.as_tensor(self.text_tokenizer(input_text)['input_ids'], dtype=torch.long).unsqueeze(0).to(device)
+        max_len = self.text_tokenizer.model_max_length
+        if max_len is None:
+            max_len = 512
+        tokenized = self.text_tokenizer(input_text, truncation=True, max_length=max_len)
+        input_ids = torch.as_tensor(tokenized['input_ids'], dtype=torch.long).unsqueeze(0).to(device)
         attention_mask = torch.ones_like(input_ids)
         
         # Initial inputs: SOS token and zeros for args

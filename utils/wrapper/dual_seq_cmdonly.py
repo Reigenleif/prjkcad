@@ -4,6 +4,7 @@ import torch
 from typing import Any, Mapping, Callable
 from models import BaseModel
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+from transformers.tokenization_utils_base import PreTrainedTokenizerBase
 from utils.dual_seq import get_dualseq_schema
 
 class DualSeqCMDOnlyWrapper(torch.nn.Module):
@@ -11,7 +12,7 @@ class DualSeqCMDOnlyWrapper(torch.nn.Module):
     
     def __init__(self, 
                  model: torch.nn.Module,
-                 text_tokenizer,
+                 text_tokenizer: PreTrainedTokenizerBase,,
                  device = "cuda" if torch.cuda.is_available() else "cpu"
     ):
         super().__init__()
@@ -36,11 +37,12 @@ class DualSeqCMDOnlyWrapper(torch.nn.Module):
         )
         
         if is_teacher_forcing:
-            # Build decoder inputs: [SOS, c0, c1, c2, ...]
-            # Truncate target length to max_new_cmds - 1 to obey the positional embedding limits of the decoder
-            cmds_limited = cmds[:, :self.max_new_cmds - 1]
+            # Build decoder inputs: [SOS, c0, c1, c2, ...] (right-shift by 1, preserving length)
+            # Truncate target length to max_new_cmds to obey the positional embedding limits of the decoder
+            T = min(cmds.size(1), self.max_new_cmds)
+            cmds_limited = cmds[:, :T]
             sos = torch.full((B, 1), self.model.sos_id, device=device, dtype=cmds.dtype)
-            decoder_input_ids = torch.cat([sos, cmds_limited], dim=1)
+            decoder_input_ids = torch.cat([sos, cmds_limited[:, :-1]], dim=1)
 
             logits, _ = self.model(
                 input_ids=input_ids,
@@ -91,7 +93,11 @@ class DualSeqCMDOnlyWrapper(torch.nn.Module):
         self.model.eval()
         
         # Tokenize input text
-        input_ids = torch.as_tensor(self.text_tokenizer(input_text)['input_ids'], dtype=torch.long).unsqueeze(0).to(next(self.model.parameters()).device)
+        max_len = self.text_tokenizer.model_max_length
+        if max_len is None :
+            max_len = 512
+        tokenized = self.text_tokenizer(input_text, truncation=True, max_length=max_len)
+        input_ids = torch.as_tensor(tokenized['input_ids'], dtype=torch.long).unsqueeze(0).to(next(self.model.parameters()).device)
         attention_mask = torch.ones_like(input_ids)
         batch = (input_ids, None, attention_mask)
         logits, preds = self.forward(batch)
