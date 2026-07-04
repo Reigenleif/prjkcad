@@ -214,7 +214,7 @@ class TrainModelPipeline:
         self.val_loader = val_loader
         self.dual_seqs = dual_seqs
 
-    def train_model(self, verbose_all: bool = False):
+    def train_model(self, verbose_all: bool = False, do_render: bool = True):
         """
         End-to-end function to train the model from model and data loading, training loop, evaluation, and saving.
         """
@@ -242,7 +242,7 @@ class TrainModelPipeline:
         results_df.to_csv(self.TEST_RESULT_PATH, index=False)
 
         # render generated cmds and args to images
-        if not self.cfg.model.is_cmd_only:
+        if do_render and not self.cfg.model.is_cmd_only:
             from utils.render import render_dual_seq_to_img
             from tqdm import tqdm
             os.makedirs(self.RENDER_RESULTS_PATH, exist_ok=True)
