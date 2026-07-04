@@ -47,7 +47,10 @@ def _collate_fn(batch: list[tuple[str, list[str]]],
     if cmd_tokenizer is None:
         cmd_tokenizer = description_tokenizer
     
-    desc_tokens = [torch.as_tensor(description_tokenizer(desc, truncation=True, max_length=512)['input_ids'], dtype=torch.long) for desc in descriptions]
+    max_len = description_tokenizer.model_max_length
+    if max_len is None :
+        max_len = 512
+    desc_tokens = [torch.as_tensor(description_tokenizer(desc, truncation=True, max_length=max_len)['input_ids'], dtype=torch.long) for desc in descriptions]
     cmd_tokens = [torch.as_tensor(cmd_tokenizer(cmd), dtype=torch.long) for cmd in cmds]
 
     desc_tokens = torch.nn.utils.rnn.pad_sequence(desc_tokens, batch_first=True, padding_value=0)
