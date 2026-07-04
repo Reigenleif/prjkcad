@@ -11,15 +11,22 @@ data:
   max_samples: 100000
 tokenizer:
   source: huggingface
-  model_name: t5-small
+  model_name: bert-base-uncased
 model:
   is_pretrained: false
-  encoder_type: t5-small
-  cmd_decoder_type: t5-small
+  encoder_type: bert
+  cmd_decoder_type: torch
   is_cmd_only: false
   args_decoder_type: sdpa
   d_model: 512
   max_new_cmds: 128
+  moe_conf: null
+  adaptive_layer: sdpa
+  cmd_embedding_type: rope_sdpa
+  args_embedding_type: rope_sdpa
+  use_drop_out: true
+  drop_out_p: 0.3
+  freeze_encoder: true
 trainer:
   optimizer: AdamW
   optimizer_kwargs:
@@ -37,5 +44,5 @@ trainer:
     teacher_forcing_ratio: 1.0
     max_grad_norm: 1.0
     quant_type: fp16
-pretrained_path: null
+pretrained_path: out/experiment_1a/checkpoint.pt
 random_seed: 42

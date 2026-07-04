@@ -11,15 +11,22 @@ data:
   max_samples: null
 tokenizer:
   source: huggingface
-  model_name: t5-small
+  model_name: bert-base-uncased
 model:
   is_pretrained: false
-  encoder_type: t5-small
-  cmd_decoder_type: t5-small
+  encoder_type: bert
+  cmd_decoder_type: torch
   is_cmd_only: false
   args_decoder_type: sdpa
   d_model: 512
   max_new_cmds: 128
+  moe_conf: null
+  adaptive_layer: sdpa
+  cmd_embedding_type: rope_sdpa
+  args_embedding_type: rope_sdpa
+  use_drop_out: true
+  drop_out_p: 0.3
+  freeze_encoder: true
 trainer:
   optimizer: AdamW
   optimizer_kwargs:
