@@ -82,6 +82,14 @@ class ModelConfig(_ConfigBase):
     d_model: Optional[int] = 512
     moe_type: Optional[str] = None
     moe_conf: Optional[str] = None
+    freeze_encoder: bool = False
+    freeze_cmd_decoder: bool = False
+    freeze_args_decoder: bool = False
+    adaptive_layer: str = "none"
+    cmd_embedding_type: str = "standard"
+    args_embedding_type: str = "standard"
+    use_drop_out: bool = True
+    drop_out_p: float = 0.1
     kwargs: Dict[str, Any] = field(default_factory=dict)
 
 @dataclass
