@@ -1,84 +1,53 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from .moe import MoEBlock
+from typing import Callable
 
-class SDPAttention(nn.Module):
-    def __init__(self, d_model, n_heads, head_dim, dropout_p=0.1):
-        super().__init__()
-        self.n_heads = n_heads
-        self.head_dim = head_dim
-        self.dropout_p = dropout_p
-        self.q_proj = nn.Linear(d_model, d_model)
-        self.k_proj = nn.Linear(d_model, d_model)
-        self.v_proj = nn.Linear(d_model, d_model)
-        self.out_proj = nn.Linear(d_model, d_model)
-        
-    def forward(self, query, key, value, attn_mask=None, is_causal=False):
-        B, T, D = query.shape
-        _, T_key, _ = key.shape
-        q = self.q_proj(query).view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
-        k = self.k_proj(key).view(B, T_key, self.n_heads, self.head_dim).transpose(1, 2)
-        v = self.v_proj(value).view(B, T_key, self.n_heads, self.head_dim).transpose(1, 2)
-        
-        if attn_mask is not None:
-            if attn_mask.dtype == torch.bool:
-                attn_mask = ~attn_mask
-            is_causal = False
-            
-        attn_out = F.scaled_dot_product_attention(
-            q, k, v, 
-            attn_mask=attn_mask, 
-            dropout_p=self.dropout_p if self.training else 0.0,
-            is_causal=is_causal
-        )
-        attn_out = attn_out.transpose(1, 2).contiguous().view(B, T, D)
-        return self.out_proj(attn_out)
+from ..common import SDPAttention, SwitchFFN, MixtralFFN
 
+def _make_ffn(d_model: int, dim_feedforward: int, dropout: float) -> nn.Sequential:
+    return nn.Sequential(
+        nn.Linear(d_model, dim_feedforward),
+        nn.ReLU(),
+        nn.Dropout(dropout),
+        nn.Linear(dim_feedforward, d_model),
+    )
+
+
+def _build_ffn_module(
+    d_model: int,
+    dim_feedforward: int,
+    dropout: float,
+    moe_conf: str,
+) -> nn.Module:
+    make_fn: Callable[[], nn.Module] = lambda: _make_ffn(d_model, dim_feedforward, dropout)
+
+    if moe_conf == "Switch":
+        return SwitchFFN(make_fn, d_model)
+    elif moe_conf == "Mixtral":
+        return MixtralFFN(make_fn, d_model)
+    else:
+        return make_fn()
+
+# Decoder Layer
 class SDPADecoderLayer(nn.Module):
-    def __init__(self, 
-            d_model: int, 
-            n_heads: int = 8, 
-            dim_feedforward: int = 768, 
-            dropout: float = 0.1,
-            moe_type: str = None,
-            moe_conf: str = None
-            ):
+    def __init__(
+        self,
+        d_model: int,
+        n_heads: int = 8,
+        dim_feedforward: int = 768,
+        dropout: float = 0.1,
+        moe_conf: str = None,
+    ):
         super().__init__()
         self.d_model = d_model
         self.n_heads = n_heads
         self.head_dim = d_model // n_heads
         assert self.head_dim * n_heads == d_model, "d_model must be divisible by n_heads"
 
-        # Self-attention with SDPA
-        def make_self_attn():
-            return SDPAttention(d_model, n_heads, self.head_dim, dropout_p=dropout)
-            
-        # Cross-attention with SDPA
-        def make_cross_attn():
-            return SDPAttention(d_model, n_heads, self.head_dim, dropout_p=dropout)
-            
-        
-        if moe_type == "MoA" and moe_conf is not None:
-            self.self_attn = MoEBlock(make_self_attn, moe_conf, d_model, is_sequence_level=True)
-            self.cross_attn = MoEBlock(make_cross_attn, moe_conf, d_model, is_sequence_level=True)
-        else:
-            self.self_attn = make_self_attn()
-            self.cross_attn = make_cross_attn()
-
-        # Feed Forward
-        def make_ffn():
-            return nn.Sequential(
-                nn.Linear(d_model, dim_feedforward),
-                nn.ReLU(),
-                nn.Dropout(dropout),
-                nn.Linear(dim_feedforward, d_model)
-            )
-            
-        if moe_type == "OnFFN" and moe_conf is not None:
-            self.ffn = MoEBlock(make_ffn, moe_conf, d_model, is_sequence_level=False)
-        else:
-            self.ffn = make_ffn()
+        self.self_attn = SDPAttention(d_model, n_heads, self.head_dim, dropout_p=dropout)
+        self.cross_attn = SDPAttention(d_model, n_heads, self.head_dim, dropout_p=dropout)
+        self.ffn = _build_ffn_module(d_model, dim_feedforward, dropout, moe_conf)
 
         self.norm1 = nn.LayerNorm(d_model)
         self.norm2 = nn.LayerNorm(d_model)
@@ -88,7 +57,14 @@ class SDPADecoderLayer(nn.Module):
         self.dropout2 = nn.Dropout(dropout)
         self.dropout3 = nn.Dropout(dropout)
 
-    def forward(self, tgt, memory, tgt_mask=None, memory_mask=None, tgt_is_causal=False):
+    def forward(
+        self,
+        tgt: torch.Tensor,
+        memory: torch.Tensor,
+        tgt_mask: torch.Tensor = None,
+        memory_mask: torch.Tensor = None,
+        tgt_is_causal: bool = False,
+    ) -> torch.Tensor:
         # 1. Self-attention
         attn_out = self.self_attn(tgt, tgt, tgt, attn_mask=tgt_mask, is_causal=tgt_is_causal)
         tgt = self.norm1(tgt + self.dropout1(attn_out))
@@ -104,25 +80,28 @@ class SDPADecoderLayer(nn.Module):
         return tgt
 
 
+# Transformer Decoder
 class SDPATransformerDecoder(nn.Module):
     """
     Transformer Decoder using PyTorch's native Scaled Dot-Product Attention (SDPA).
     """
-    def __init__(self, 
-            d_model: int, 
-            n_heads: int = 8, 
-            n_layers: int = 4, 
-            dim_feedforward: int = 768,
-            max_len: int = 1024, 
-            side_embedding: nn.Module = None, 
-            moe_type: str = None, 
-            moe_conf: str = None
-        ):
+
+    def __init__(
+        self,
+        d_model: int,
+        n_heads: int = 8,
+        n_layers: int = 8,
+        dim_feedforward: int = 768,
+        max_len: int = 1024,
+        side_embedding: nn.Module = None,
+        moe_conf: str = None,
+        dropout: float = 0.1,
+    ):
         super().__init__()
         self.d_model = d_model
         self.side_embedding = side_embedding
         self.layers = nn.ModuleList([
-            SDPADecoderLayer(d_model, n_heads, dim_feedforward, moe_type=moe_type, moe_conf=moe_conf)
+            SDPADecoderLayer(d_model, n_heads, dim_feedforward, dropout=dropout, moe_conf=moe_conf)
             for _ in range(n_layers)
         ])
         self.pos_embedding = nn.Embedding(max_len, d_model)
@@ -130,7 +109,13 @@ class SDPATransformerDecoder(nn.Module):
     def _causal_mask(self, length: int, device: torch.device) -> torch.Tensor:
         return torch.triu(torch.ones(length, length, device=device, dtype=torch.bool), diagonal=1)
 
-    def forward(self, input_ids=None, inputs_embeds=None, encoder_hidden_states=None, encoder_attention_mask=None):
+    def forward(
+        self,
+        input_ids: torch.Tensor = None,
+        inputs_embeds: torch.Tensor = None,
+        encoder_hidden_states: torch.Tensor = None,
+        encoder_attention_mask: torch.Tensor = None,
+    ) -> torch.Tensor:
         if inputs_embeds is not None:
             tgt_state = inputs_embeds
         elif input_ids is not None:
@@ -147,18 +132,16 @@ class SDPATransformerDecoder(nn.Module):
         tgt_state = tgt_state + pos_embed
 
         causal_mask = self._causal_mask(seq_len, tgt_state.device)
-        
+
         tgt_key_padding_mask = None
         if input_ids is not None:
             pad_id = getattr(self.side_embedding, "pad_id", 0)
-            tgt_key_padding_mask = (input_ids == pad_id).unsqueeze(1).unsqueeze(2) # Shape: B, 1, 1, T
+            tgt_key_padding_mask = (input_ids == pad_id).unsqueeze(1).unsqueeze(2)
 
         memory_key_padding_mask = None
         if encoder_attention_mask is not None:
-            memory_key_padding_mask = (encoder_attention_mask == 0).unsqueeze(1).unsqueeze(2) # Shape: B, 1, 1, T_mem
+            memory_key_padding_mask = (encoder_attention_mask == 0).unsqueeze(1).unsqueeze(2)
 
-        # If we don't have tgt_key_padding_mask, we don't need to materialize causal mask.
-        # We can just let self_attn use is_causal=True!
         if tgt_key_padding_mask is None:
             full_tgt_mask = None
             tgt_is_causal = True
@@ -169,9 +152,9 @@ class SDPATransformerDecoder(nn.Module):
         x = tgt_state
         for layer in self.layers:
             x = layer(
-                x, encoder_hidden_states, 
-                tgt_mask=full_tgt_mask, 
+                x, encoder_hidden_states,
+                tgt_mask=full_tgt_mask,
                 memory_mask=memory_key_padding_mask,
-                tgt_is_causal=tgt_is_causal
+                tgt_is_causal=tgt_is_causal,
             )
         return x

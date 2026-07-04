@@ -1,7 +1,33 @@
-from .cmd_embedding import CADCmdSideEmbedding
-from .args_embedding import CADArgsSideEmbedding
+from .cmd_embedding import (
+    CADCmdSideEmbedding,
+    CADCmdRoPEEmbedding,
+    CADCmdSDPAEmbedding,
+    CADCmdRoPESDPAEmbedding,
+    RotaryPositionalEncoding,
+    build_cmd_embedding,
+)
+from .args_embedding import (
+    CADArgsSideEmbedding,
+    CADArgsRoPEEmbedding,
+    CADArgsSDPAEmbedding,
+    CADArgsRoPESDPAEmbedding,
+    build_args_embedding,
+)
 
 __all__ = [
+    # Cmd embeddings
     "CADCmdSideEmbedding",
-    "CADArgsSideEmbedding"
+    "CADCmdRoPEEmbedding",
+    "CADCmdSDPAEmbedding",
+    "CADCmdRoPESDPAEmbedding",
+    # Args embeddings
+    "CADArgsSideEmbedding",
+    "CADArgsRoPEEmbedding",
+    "CADArgsSDPAEmbedding",
+    "CADArgsRoPESDPAEmbedding",
+    # Shared helpers
+    "RotaryPositionalEncoding",
+    # Factories
+    "build_cmd_embedding",
+    "build_args_embedding",
 ]

@@ -1,6 +1,9 @@
+import logging
 import torch
 import torch.nn as nn
 from transformers import AutoModelForSeq2SeqLM
+
+logging.getLogger("transformers.modeling_utils").setLevel(logging.ERROR)
 
 class PretrainedT5Encoder(nn.Module):
     """

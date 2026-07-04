@@ -1,86 +1,139 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+from typing import Callable
 
-class TorchTransformerDecoderLayer(nn.Module):
-    def __init__(self, d_model: int, n_heads: int = 8, dim_feedforward: int = 2048, dropout: float = 0.1, moe_type: str = None, moe_conf: str = None):
+from ..common import SwitchFFN, MixtralFFN
+
+
+# Module-level helpers
+def _make_ffn(d_model: int, dim_feedforward: int, dropout: float) -> nn.Sequential:
+    """Returns a standard FFN block (Linear → ReLU → Dropout → Linear)."""
+    return nn.Sequential(
+        nn.Linear(d_model, dim_feedforward),
+        nn.ReLU(),
+        nn.Dropout(dropout),
+        nn.Linear(dim_feedforward, d_model),
+    )
+
+
+def _build_ffn_module(
+    d_model: int,
+    dim_feedforward: int,
+    dropout: float,
+    moe_conf: str,
+) -> nn.Module:
+    make_fn: Callable[[], nn.Module] = lambda: _make_ffn(d_model, dim_feedforward, dropout)
+
+    if moe_conf == "Switch":
+        return SwitchFFN(make_fn, d_model)
+    elif moe_conf == "Mixtral":
+        return MixtralFFN(make_fn, d_model)
+    else:
+        return make_fn()
+
+
+class MHAWrapper(nn.Module):
+    def __init__(self, mha: nn.MultiheadAttention):
         super().__init__()
-        
-        # Multihead Attention wrapper that only returns output
-        class MHAWrapper(nn.Module):
-            def __init__(self, mha):
-                super().__init__()
-                self.mha = mha
-            def forward(self, query, key, value, *args, **kwargs):
-                # PyTorch nn.MultiheadAttention expects key_padding_mask as key_padding_mask,
-                # which might be passed in kwargs.
-                out, _ = self.mha(query, key, value, *args, **kwargs)
-                return out
-                
-        def make_self_attn():
-            return MHAWrapper(nn.MultiheadAttention(d_model, n_heads, dropout=dropout, batch_first=True))
-            
-        def make_cross_attn():
-            return MHAWrapper(nn.MultiheadAttention(d_model, n_heads, dropout=dropout, batch_first=True))
+        self.mha = mha
 
-        from .moe import MoEBlock
+    def forward(
+        self,
+        query: torch.Tensor,
+        key: torch.Tensor,
+        value: torch.Tensor,
+        attn_mask: torch.Tensor = None,
+        key_padding_mask: torch.Tensor = None,
+    ) -> torch.Tensor:
+        out, _ = self.mha(query, key, value, attn_mask=attn_mask, key_padding_mask=key_padding_mask)
+        return out
 
-        if moe_type == "MoA" and moe_conf is not None:
-            self.self_attn = MoEBlock(make_self_attn, moe_conf, d_model, is_sequence_level=True)
-            self.cross_attn = MoEBlock(make_cross_attn, moe_conf, d_model, is_sequence_level=True)
-        else:
-            self.self_attn = make_self_attn()
-            self.cross_attn = make_cross_attn()
-            
-        def make_ffn():
-            return nn.Sequential(
-                nn.Linear(d_model, dim_feedforward),
-                nn.ReLU(),
-                nn.Dropout(dropout),
-                nn.Linear(dim_feedforward, d_model)
-            )
-            
-        if moe_type == "OnFFN" and moe_conf is not None:
-            self.ffn = MoEBlock(make_ffn, moe_conf, d_model, is_sequence_level=False)
-        else:
-            self.ffn = make_ffn()
-            
+# Decoder Layer
+class TorchTransformerDecoderLayer(nn.Module):
+    def __init__(
+        self,
+        d_model: int,
+        n_heads: int = 8,
+        dim_feedforward: int = 2048,
+        dropout: float = 0.1,
+        moe_conf: str = None,
+    ):
+        super().__init__()
+
+        self.self_attn = MHAWrapper(
+            nn.MultiheadAttention(d_model, n_heads, dropout=dropout, batch_first=True)
+        )
+        self.cross_attn = MHAWrapper(
+            nn.MultiheadAttention(d_model, n_heads, dropout=dropout, batch_first=True)
+        )
+        self.ffn = _build_ffn_module(d_model, dim_feedforward, dropout, moe_conf)
+
         self.norm1 = nn.LayerNorm(d_model)
         self.norm2 = nn.LayerNorm(d_model)
         self.norm3 = nn.LayerNorm(d_model)
-        
+
         self.dropout1 = nn.Dropout(dropout)
         self.dropout2 = nn.Dropout(dropout)
         self.dropout3 = nn.Dropout(dropout)
-        
-    def forward(self, tgt, memory, tgt_mask=None, memory_mask=None, tgt_key_padding_mask=None, memory_key_padding_mask=None):
+
+    def forward(
+        self,
+        tgt: torch.Tensor,
+        memory: torch.Tensor,
+        tgt_mask: torch.Tensor = None,
+        memory_mask: torch.Tensor = None,
+        tgt_key_padding_mask: torch.Tensor = None,
+        memory_key_padding_mask: torch.Tensor = None,
+    ) -> torch.Tensor:
         # 1. Self Attention
-        # PyTorch MHA expects key_padding_mask, and attn_mask.
-        # Ensure correct mapping for keyword args.
-        attn_out = self.self_attn(tgt, tgt, tgt, attn_mask=tgt_mask, key_padding_mask=tgt_key_padding_mask)
+        attn_out = self.self_attn(
+            tgt, tgt, tgt,
+            attn_mask=tgt_mask,
+            key_padding_mask=tgt_key_padding_mask,
+        )
         tgt = self.norm1(tgt + self.dropout1(attn_out))
-        
+
         # 2. Cross Attention
         if memory is not None:
-            attn_out = self.cross_attn(tgt, memory, memory, attn_mask=memory_mask, key_padding_mask=memory_key_padding_mask)
+            attn_out = self.cross_attn(
+                tgt, memory, memory,
+                attn_mask=memory_mask,
+                key_padding_mask=memory_key_padding_mask,
+            )
             tgt = self.norm2(tgt + self.dropout2(attn_out))
-            
+
         # 3. FFN
         ffn_out = self.ffn(tgt)
         tgt = self.norm3(tgt + self.dropout3(ffn_out))
         return tgt
 
+
+# Transformer Decoder
 class TorchTransformerDecoder(nn.Module):
     """
-    Wraps PyTorch's built-in nn.TransformerDecoder or custom MoE variant.
+    PyTorch Built in
     """
-    def __init__(self, d_model: int, n_heads: int = 8, n_layers: int = 4, max_len: int = 1024, side_embedding: nn.Module = None, moe_type: str = None, moe_conf: str = None):
+    def __init__(
+        self,
+        d_model: int,
+        n_heads: int = 8,
+        n_layers: int = 4,
+        max_len: int = 1024,
+        side_embedding: nn.Module = None,
+        moe_conf: str = None,
+        dropout: float = 0.1,
+    ):
         super().__init__()
         self.d_model = d_model
         self.side_embedding = side_embedding
-        
-        if moe_type is not None and moe_conf is not None:
+
+        if moe_conf is not None:
             self.layers = nn.ModuleList([
-                TorchTransformerDecoderLayer(d_model=d_model, n_heads=n_heads, dim_feedforward=2048, dropout=0.1, moe_type=moe_type, moe_conf=moe_conf)
+                TorchTransformerDecoderLayer(
+                    d_model=d_model, n_heads=n_heads, dim_feedforward=2048,
+                    dropout=dropout, moe_conf=moe_conf,
+                )
                 for _ in range(n_layers)
             ])
             self.decoder = None
@@ -88,17 +141,24 @@ class TorchTransformerDecoder(nn.Module):
             decoder_layer = nn.TransformerDecoderLayer(
                 d_model=d_model,
                 nhead=n_heads,
+                dropout=dropout,
                 batch_first=True,
             )
             self.decoder = nn.TransformerDecoder(decoder_layer, num_layers=n_layers)
             self.layers = None
-            
+
         self.pos_embedding = nn.Embedding(max_len, d_model)
 
     def _causal_mask(self, length: int, device: torch.device) -> torch.Tensor:
         return torch.triu(torch.ones(length, length, device=device, dtype=torch.bool), diagonal=1)
 
-    def forward(self, input_ids=None, inputs_embeds=None, encoder_hidden_states=None, encoder_attention_mask=None):
+    def forward(
+        self,
+        input_ids: torch.Tensor = None,
+        inputs_embeds: torch.Tensor = None,
+        encoder_hidden_states: torch.Tensor = None,
+        encoder_attention_mask: torch.Tensor = None,
+    ) -> torch.Tensor:
         if inputs_embeds is not None:
             tgt_state = inputs_embeds
         elif input_ids is not None:
@@ -115,7 +175,7 @@ class TorchTransformerDecoder(nn.Module):
         tgt_state = tgt_state + pos_embed
 
         causal_mask = self._causal_mask(seq_len, tgt_state.device)
-        
+
         tgt_key_padding_mask = None
         if input_ids is not None:
             pad_id = getattr(self.side_embedding, "pad_id", 0)
@@ -142,7 +202,7 @@ class TorchTransformerDecoder(nn.Module):
                     tgt_mask=causal_mask,
                     memory_mask=None,
                     tgt_key_padding_mask=tgt_key_padding_mask,
-                    memory_key_padding_mask=memory_key_padding_mask
+                    memory_key_padding_mask=memory_key_padding_mask,
                 )
             dec_out = x
         return dec_out
