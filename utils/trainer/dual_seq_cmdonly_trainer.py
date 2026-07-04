@@ -113,7 +113,17 @@ class DualSeqCMDOnlyTrainer:
         self.wrapper.eval()
         batch = _move_to_device(batch, self.device)
         outputs, preds = self._forward(batch, ratio=1.0)
-        loss = self._loss(outputs, batch)
+
+        # Trim targets to match outputs length
+        T_out = preds.size(1)
+        cmd_targets = batch[1]
+        if cmd_targets.size(1) > T_out:
+            cmd_targets = cmd_targets[:, :T_out]
+        elif cmd_targets.size(1) < T_out:
+            preds = preds[:, :cmd_targets.size(1)]
+            outputs = (outputs[0][:, :cmd_targets.size(1), :] if isinstance(outputs, tuple) else outputs[:, :cmd_targets.size(1), :], preds)
+        
+        loss = self._loss(outputs, (batch[0], cmd_targets))
         metrics = {"loss": float(loss.detach().cpu().item())}
         
         # perplexity
@@ -124,9 +134,9 @@ class DualSeqCMDOnlyTrainer:
         # CMD level metrics
         schema = get_dualseq_schema()['id_to_command']
         cmd_only_metric_list = []
-        for i in range(batch[1].shape[0]):
+        for i in range(cmd_targets.shape[0]):
             pred_cmds = [schema.get(id, '<UNK>') for id in preds[i].cpu().numpy().tolist()]
-            true_cmds = [schema.get(id, '<UNK>') for id in batch[1][i].cpu().numpy().tolist()]
+            true_cmds = [schema.get(id, '<UNK>') for id in cmd_targets[i].cpu().numpy().tolist()]
             cmd_only_metric_list.append(eval_cmd_only(pred_cmds, true_cmds))
 
         cmd_only_metrics = {key: float(np.mean([metric[key] for metric in cmd_only_metric_list])) for key in cmd_only_metric_list[0].keys()}
@@ -162,7 +172,8 @@ class DualSeqCMDOnlyTrainer:
         
         try:
             model_param_cnt = sum(p.numel() for p in self.wrapper.model.parameters())
-            init_str += f". Model parameters: {model_param_cnt:,}"
+            trainable_param_cnt = sum(p.numel() for p in self.wrapper.model.parameters() if p.requires_grad)
+            init_str += f". Model parameters: {model_param_cnt:,} (trainable: {trainable_param_cnt:,})"
         except Exception:
             pass    
         

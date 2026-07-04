@@ -127,8 +127,19 @@ class DualSeqTrainer:
         outputs = self._forward(batch, ratio=1.0)
         cmd_logits, cmd_preds, arg_preds = outputs
         preds = cmd_preds
+
+        # Trim targets to match outputs length (in case of truncation/padding mismatches)
+        T_out = preds.size(1)
+        if cmd_targets.size(1) > T_out:
+            cmd_targets = cmd_targets[:, :T_out]
+            arg_targets = arg_targets[:, :T_out, :]
+        elif cmd_targets.size(1) < T_out:
+            preds = preds[:, :cmd_targets.size(1)]
+            arg_preds = arg_preds[:, :cmd_targets.size(1), :]
+            cmd_logits = cmd_logits[:, :cmd_targets.size(1), :]
+            outputs = (cmd_logits, preds, arg_preds)
         
-        loss = self._loss(outputs, batch)
+        loss = self._loss(outputs, (batch[0], cmd_targets, arg_targets, batch[3]))
         metrics = {
             "loss": float(loss.detach().cpu().item()),
         }
@@ -139,9 +150,9 @@ class DualSeqTrainer:
         # CMD-ARG level metrics
         schema = get_dualseq_schema()['id_to_command']
         cmd_arg_metric_list = []
-        for i in range(batch[1].shape[0]):
+        for i in range(cmd_targets.shape[0]):
             pred_cmds = [schema.get(id, '<UNK>') for id in preds[i].cpu().numpy().tolist()]
-            true_cmds = [schema.get(id, '<UNK>') for id in batch[1][i].cpu().numpy().tolist()]
+            true_cmds = [schema.get(id, '<UNK>') for id in cmd_targets[i].cpu().numpy().tolist()]
             pred_args = arg_preds[i].float().cpu().numpy().tolist()
             true_args = arg_targets[i].cpu().numpy().tolist()
             cmd_arg_metric_list.append(eval_cmd_and_args(pred_cmds, true_cmds, pred_args, true_args))
@@ -185,7 +196,8 @@ class DualSeqTrainer:
         
         try:
             model_param_cnt = sum(p.numel() for p in self.wrapper.model.parameters())
-            init_str += f". Model parameters: {model_param_cnt:,}"
+            trainable_param_cnt = sum(p.numel() for p in self.wrapper.model.parameters() if p.requires_grad)
+            init_str += f". Model parameters: {model_param_cnt:,} (trainable: {trainable_param_cnt:,})"
         except Exception:
             pass    
         
