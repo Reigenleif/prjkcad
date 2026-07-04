@@ -12,7 +12,7 @@ class DualSeqCMDOnlyWrapper(torch.nn.Module):
     
     def __init__(self, 
                  model: torch.nn.Module,
-                 text_tokenizer: PreTrainedTokenizerBase,,
+                 text_tokenizer: PreTrainedTokenizerBase,
                  device = "cuda" if torch.cuda.is_available() else "cpu"
     ):
         super().__init__()
