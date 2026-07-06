@@ -220,23 +220,25 @@ class BaseModel(nn.Module):
         )
         cmd_logits = self.cmd_head(cmd_hidden)
 
-        if not self.cfg.is_cmd_only:
-            T_dec = decoder_input_ids.size(1)
-            if decoder_input_args is None:
-                decoder_input_args = self._default_args(
-                    B, T_dec,
-                    encoder_hidden_states.device,
-                    encoder_hidden_states.dtype,
-                )
+        if self.cfg.is_cmd_only:
+            return cmd_logits, encoder_hidden_states
 
-            arg_embeds = self.arg_embedding(decoder_input_args)
-            arg_hidden = self.arg_decoder(
-                inputs_embeds=arg_embeds,
-                encoder_hidden_states=encoder_hidden_states,
-                encoder_attention_mask=attention_mask,
+        T_dec = decoder_input_ids.size(1)
+        if decoder_input_args is None:
+            decoder_input_args = self._default_args(
+                B, T_dec,
+                encoder_hidden_states.device,
+                encoder_hidden_states.dtype,
             )
-            arg_preds = self.arg_head(arg_hidden)
 
-            return cmd_logits, arg_preds, encoder_hidden_states
+        arg_embeds = self.arg_embedding(decoder_input_args) + cmd_hidden # CMD Directed
+        arg_hidden = self.arg_decoder(
+            inputs_embeds=arg_embeds,
+            encoder_hidden_states=encoder_hidden_states,
+            encoder_attention_mask=attention_mask,
+        )
+        arg_preds = self.arg_head(arg_hidden)
 
-        return cmd_logits, encoder_hidden_states
+        return cmd_logits, arg_preds, encoder_hidden_states
+
+        
