@@ -108,8 +108,9 @@ class TrainerConfig(_ConfigBase):
     kwargs: Dict[str, Any] = field(default_factory=dict)
 
 @dataclass
-class Config(_ConfigBase):
+class FineTuningConfig(_ConfigBase):
     run_name: str
+    type: str
     data: DataConfig
     tokenizer: TokenizerConfig
     model: ModelConfig
@@ -117,6 +118,18 @@ class Config(_ConfigBase):
     random_seed: int
     pretrained_path: Optional[str] = None
 
+@dataclass
+class PretrainConfig(_ConfigBase):
+    run_name: str
+    type: str
+    data: DataConfig
+    tokenizer: TokenizerConfig
+    model: ModelConfig
+    trainer: TrainerConfig
+    random_seed: int
+    pretrained_path: Optional[str] = None
+
+class Config:
     # Namespace mappings for backwards compatibility and referencing nested classes
     Data = DataConfig
     Tokenizer = TokenizerConfig
@@ -125,11 +138,23 @@ class Config(_ConfigBase):
     Trainer = TrainerConfig
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> "Config":
-        return _from_dict_helper(cls, d)
+    def from_dict(cls, d: Dict[str, Any]) -> Union[FineTuningConfig, PretrainConfig]:
+        config_type = d.get("type", "fine_tuning")
+        if config_type == "pretrain":
+            if "type" not in d:
+                d = dict(d)
+                d["type"] = "pretrain"
+            return _from_dict_helper(PretrainConfig, d)
+        elif config_type == "fine_tuning":
+            if "type" not in d:
+                d = dict(d)
+                d["type"] = "fine_tuning"
+            return _from_dict_helper(FineTuningConfig, d)
+        else:
+            raise ValueError(f"Unknown config type: {config_type}")
 
     @classmethod
-    def from_yaml(cls, path: str) -> "Config":
+    def from_yaml(cls, path: str) -> Union[FineTuningConfig, PretrainConfig]:
         with open(path, "r") as f:
             data = yaml.safe_load(f)
         return cls.from_dict(data)

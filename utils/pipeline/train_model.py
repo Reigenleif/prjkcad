@@ -11,13 +11,13 @@ from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 from utils.set_seed import set_seed
 from utils.data_utils import RefLoader
 from utils.dual_seq import DualSeq, get_dualseq_schema
-from utils.data_utils import create_cmdonly_data_loader, create_dualseq_data_loader
+from utils.data_utils import create_cmdonly_data_loader, create_dualseq_data_loader, create_pretrain_data_loader
 from utils.wrapper import DualSeqCMDOnlyWrapper
-from utils.wrapper import DualSeqWrapper
+from utils.wrapper import DualSeqWrapper, PretrainWrapper
 from utils.criterion import DualSeqCMDOnlyCriterion
-from utils.criterion import DualSeqCriterion
+from utils.criterion import DualSeqCriterion, PretrainCriterion
 from utils.trainer import DualSeqCMDOnlyTrainer
-from utils.trainer import DualSeqTrainer
+from utils.trainer import DualSeqTrainer, PretrainTrainer
 
 from models import BaseModel
 
@@ -37,7 +37,7 @@ def load_config(config_path: str) -> Config:
     return Config.from_yaml(config_path)
 
 
-class TrainModelPipeline:
+class FineTuningPipeline:
     """
     End-to-end training pipeline
 
@@ -151,11 +151,35 @@ class TrainModelPipeline:
         model = model_cls(**model_kwargs)
         
         # Load local checkpoint if specified
+        ex_input_ids = torch.zeros((1, 10), dtype=torch.int64)
+        ex_input_mask = torch.ones((1, 10), dtype=torch.int64)
+        
+        before_model_out, _, _ = model(ex_input_ids, ex_input_mask)
         if config.pretrained_path is not None:
-            state_dict = torch.load(config.pretrained_path, map_location="cpu")
-            model.load_state_dict(state_dict)
-            print(f"Loaded model checkpoint from {config.pretrained_path}")
-            
+            if os.path.isdir(config.pretrained_path):
+                encoder_path = os.path.join(config.pretrained_path, "encoder.pt")
+                adaptive_layer_path = os.path.join(config.pretrained_path, "adaptive_layer.pt")
+                if os.path.exists(encoder_path):
+                    model.encoder.load_state_dict(torch.load(encoder_path, map_location="cpu"))
+                    print(f"Loaded encoder from {encoder_path}")
+                else:
+                    print(f"Warning: encoder.pt not found in {config.pretrained_path}")
+                if os.path.exists(adaptive_layer_path):
+                    model.adaptive_layer.load_state_dict(torch.load(adaptive_layer_path, map_location="cpu"))
+                    print(f"Loaded adaptive_layer from {adaptive_layer_path}")
+                else:
+                    print(f"Warning: adaptive_layer.pt not found in {config.pretrained_path}")
+            else:
+                state_dict = torch.load(config.pretrained_path, map_location="cpu")
+                model.load_state_dict(state_dict)
+                print(f"Loaded model checkpoint from {config.pretrained_path}")
+        
+        after_model_out, _, _ = model(ex_input_ids, ex_input_mask)
+        if not torch.equal(before_model_out, after_model_out):
+            print("Successfully loaded model checkpoint: diff on model output")
+        else:
+            print("Not loading model checkpoint: diff on model output is 0")
+
         # Init wrapper
         if config.data.is_cmdonly:
             wrapper = DualSeqCMDOnlyWrapper(model, text_tokenizer)
@@ -491,3 +515,131 @@ def merge_best_epochs(out_dir: str = "out", output_path: str = "out/best_merged.
     merged.to_csv(output_path, index=False)
     print(f"Merged {len(frames)} experiment(s) → {output_path}  ({len(merged)} row(s))")
     return merged
+
+
+class PretrainPipeline:
+    """
+    Autoencoder Pretraining Pipeline
+    """
+    def __init__(self, cfg: Union[Config, Dict[str, Any], str]):
+        if isinstance(cfg, str):
+            cfg = load_config(cfg)
+        elif isinstance(cfg, dict):
+            cfg = Config.from_dict(cfg)
+        self.cfg = cfg
+        self.progression = None
+        self.trainer = None
+        self.wrapper = None
+        self.model = None
+        self.criterion = None
+        self.optimizer = None
+        self.train_loader = None
+        self.val_loader = None
+        self.dual_seqs = None
+
+    def load_things(self):
+        config = self.cfg
+        self.SAVE_ROOT = f"out/{config.run_name}"
+        os.makedirs(self.SAVE_ROOT, exist_ok=True)
+
+        set_seed(config.random_seed)
+
+        if config.tokenizer.source == "huggingface":
+            text_tokenizer = AutoTokenizer.from_pretrained(config.tokenizer.model_name)
+        else:
+            raise ValueError(f"Unsupported tokenizer source: {config.tokenizer.source}")
+
+        if self.dual_seqs is None:
+            loader = RefLoader(
+                config.data.data_root,
+                max_samples=config.data.max_samples,
+                source_data_type=config.data.source_data_type
+            )
+            df = loader.load()
+            dual_seqs = DualSeq.from_text2cad_df(df)
+            if config.data.sample_ratio < 1.0:
+                sample_size = int(len(dual_seqs) * config.data.sample_ratio)
+                dual_seqs = random.sample(dual_seqs, sample_size)
+            self.dual_seqs = dual_seqs
+
+        train_loader, val_loader = create_pretrain_data_loader(
+            self.dual_seqs,
+            tokenizer=text_tokenizer,
+            description_level=config.data.description_level,
+            batch_size=config.data.batch_size,
+            num_workers=config.data.num_workers,
+            val_ratio=config.data.eval_split_ratio,
+            shuffle=True
+        )
+
+        n_args = get_dualseq_schema()["n_args"]
+        base_model = BaseModel(
+            cfg=config.model,
+            vocab_size=len(text_tokenizer),
+            n_args=n_args
+        )
+
+        wrapper = PretrainWrapper(
+            model=base_model,
+            text_tokenizer=text_tokenizer,
+            device="cuda" if torch.cuda.is_available() else "cpu"
+        )
+
+        kl_weight = config.trainer.criterion.kwargs.get("kl_weight", 1.0)
+        criterion = PretrainCriterion(
+            pad_id=text_tokenizer.pad_token_id or 0,
+            kl_weight=kl_weight
+        )
+
+        if config.trainer.optimizer == "AdamW":
+            optimizer_cls = torch.optim.AdamW
+        else:
+            raise ValueError(f"Unsupported optimizer: {config.trainer.optimizer}")
+
+        optimizer = optimizer_cls(wrapper.parameters(), **config.trainer.optimizer_kwargs)
+
+        trainer = PretrainTrainer(
+            model_wrapper=wrapper,
+            criterion=criterion,
+            optimizer=optimizer,
+            train_loader=train_loader,
+            val_loader=val_loader,
+            device=wrapper.device,
+            max_grad_norm=config.trainer.kwargs.get("max_grad_norm", 1.0),
+            save_folder=self.SAVE_ROOT,
+            best_metric_key="val_f1",
+            best_metric_mode="max"
+        )
+
+        self.trainer = trainer
+        self.wrapper = wrapper
+        self.model = base_model
+        self.criterion = criterion
+        self.optimizer = optimizer
+        self.train_loader = train_loader
+        self.val_loader = val_loader
+
+    def train_model(self, verbose_all: bool = False, do_render: bool = False):
+        if not self.trainer or not self.train_loader:
+            self.load_things()
+
+        progression = self.trainer.train(self.cfg.trainer.epochs, verbose=verbose_all)
+        self.progression = progression
+        return progression
+
+
+class TrainModelPipeline:
+    """
+    Factory/Router class for CAD model training/pretraining pipeline.
+    Instantiates FineTuningPipeline or PretrainPipeline based on config type.
+    """
+    def __new__(cls, cfg: Union[Config, Dict[str, Any], str]):
+        if isinstance(cfg, str):
+            cfg = load_config(cfg)
+        elif isinstance(cfg, dict):
+            cfg = Config.from_dict(cfg)
+
+        if getattr(cfg, "type", "fine_tuning") == "pretrain":
+            return PretrainPipeline(cfg)
+        else:
+            return FineTuningPipeline(cfg)

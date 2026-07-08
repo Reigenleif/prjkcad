@@ -1,6 +1,7 @@
 from .cmd_evaluation_functions import token_precision_from_cmd_list, token_recall_from_cmd_list, token_f1_from_cmd_list, token_accuracy_from_cmd_list, tokens_accuracy_from_cmd_list
 from .args_evaluation_functions import arg_r2_score, arg_mape
-from .shape_evaluation_functions import invalidity_rate_from_shapes, chamfer_distance_from_shapes
+from .shape_evaluation_functions import invalidity_rate_from_shapes, chamfer_distance_from_shapes, chamfer_distance
+from .reconstruction_evaluation import eval_reconstruction
 from utils.dual_seq import DualSeq
 from utils.render import render_dual_seq_to_shape
 

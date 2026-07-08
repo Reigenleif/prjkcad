@@ -1,4 +1,4 @@
-run_name: experiment_1d
+run_name: fine_tune
 data:
   data_root: data/text2cad
   source_data_type: text2cad
@@ -13,7 +13,7 @@ tokenizer:
   source: huggingface
   model_name: bert-base-uncased
 model:
-  is_pretrained: false
+  is_pretrained: true
   encoder_type: bert
   cmd_decoder_type: torch
   is_cmd_only: false
@@ -38,11 +38,11 @@ trainer:
     kwargs:
       lambda_after_pad: 3
       lambda_overgen: 3
-  epochs: 5
+  epochs: 30
   max_new_cmds: 128
   kwargs:
     teacher_forcing_ratio: 1.0
     max_grad_norm: 1.0
     quant_type: fp16
-pretrained_path: null
+pretrained_path: out/pretrain
 random_seed: 42
