@@ -65,6 +65,9 @@ class DataConfig(_ConfigBase):
     batch_size: int
     sample_ratio: Optional[float] = None
     max_samples: Optional[int] = None
+    train_csv_path: Optional[str] = None
+    val_data_root: Optional[str] = None
+    val_csv_path: Optional[str] = None
 
 @dataclass
 class TokenizerConfig(_ConfigBase):
@@ -99,6 +102,11 @@ class CriterionConfig(_ConfigBase):
     kwargs: Dict[str, Any] = field(default_factory=dict)
 
 @dataclass
+class SchedulerConfig(_ConfigBase):
+    warmup_steps: int = 0
+    warmup_ratio: Optional[float] = None
+
+@dataclass
 class TrainerConfig(_ConfigBase):
     optimizer: str
     criterion: CriterionConfig
@@ -106,6 +114,8 @@ class TrainerConfig(_ConfigBase):
     max_new_cmds: int
     optimizer_kwargs: Dict[str, Any] = field(default_factory=dict)
     kwargs: Dict[str, Any] = field(default_factory=dict)
+    eval_steps: int = 1000
+    scheduler: Optional[SchedulerConfig] = None
 
 @dataclass
 class FineTuningConfig(_ConfigBase):
@@ -129,6 +139,27 @@ class PretrainConfig(_ConfigBase):
     random_seed: int
     pretrained_path: Optional[str] = None
 
+@dataclass
+class GRPOKwargsConfig(_ConfigBase):
+    n_rollouts: int = 8
+    clip_eps: float = 0.2
+    min_cd: float = 1e-5
+    max_cd: float = 0.5
+    eval_fraction: float = 0.1
+    temperature: float = 1.0
+
+@dataclass
+class GRPOConfig(_ConfigBase):
+    run_name: str
+    type: str
+    data: DataConfig
+    tokenizer: TokenizerConfig
+    model: ModelConfig
+    trainer: TrainerConfig
+    grpo: GRPOKwargsConfig
+    random_seed: int
+    pretrained_path: Optional[str] = None
+
 class Config:
     # Namespace mappings for backwards compatibility and referencing nested classes
     Data = DataConfig
@@ -136,9 +167,11 @@ class Config:
     Model = ModelConfig
     Criterion = CriterionConfig
     Trainer = TrainerConfig
+    Scheduler = SchedulerConfig
+    GRPOKwargs = GRPOKwargsConfig
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> Union[FineTuningConfig, PretrainConfig]:
+    def from_dict(cls, d: Dict[str, Any]) -> Union[FineTuningConfig, PretrainConfig, GRPOConfig]:
         config_type = d.get("type", "fine_tuning")
         if config_type == "pretrain":
             if "type" not in d:
@@ -150,11 +183,16 @@ class Config:
                 d = dict(d)
                 d["type"] = "fine_tuning"
             return _from_dict_helper(FineTuningConfig, d)
+        elif config_type == "grpo":
+            if "type" not in d:
+                d = dict(d)
+                d["type"] = "grpo"
+            return _from_dict_helper(GRPOConfig, d)
         else:
             raise ValueError(f"Unknown config type: {config_type}")
 
     @classmethod
-    def from_yaml(cls, path: str) -> Union[FineTuningConfig, PretrainConfig]:
+    def from_yaml(cls, path: str) -> Union[FineTuningConfig, PretrainConfig, GRPOConfig]:
         with open(path, "r") as f:
             data = yaml.safe_load(f)
         return cls.from_dict(data)

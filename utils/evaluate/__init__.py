@@ -4,6 +4,7 @@ from .shape_evaluation_functions import invalidity_rate_from_shapes, chamfer_dis
 from .reconstruction_evaluation import eval_reconstruction
 from utils.dual_seq import DualSeq
 from utils.render import render_dual_seq_to_shape
+from .grpo_evaluate import compute_cd, compute_reward
 
 
 def eval_cmd_only(pred_cmds, gt_cmds):
