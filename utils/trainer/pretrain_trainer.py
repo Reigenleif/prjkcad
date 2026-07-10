@@ -146,6 +146,10 @@ class PretrainTrainer:
         file_path = os.path.join(folder_path, "best_epoch.csv")
         df.to_csv(file_path, index=False)
         self.wrapper.save(folder_path)
+        if self.optimizer is not None:
+            torch.save(self.optimizer.state_dict(), os.path.join(folder_path, "optimizer.pt"))
+        if self.scheduler is not None:
+            torch.save(self.scheduler.state_dict(), os.path.join(folder_path, "scheduler.pt"))
 
     def fit(self, epochs: int, verbose: bool = True) -> list[dict[str, float]]:
         print(f"Starting autoencoder pretraining for {epochs} epochs")
@@ -217,6 +221,10 @@ class PretrainTrainer:
             self.save_progression(self.save_folder, history)
             if best_epoch_or_step == -1:
                 self.wrapper.save(self.save_folder)
+                if self.optimizer is not None:
+                    torch.save(self.optimizer.state_dict(), os.path.join(self.save_folder, "optimizer.pt"))
+                if self.scheduler is not None:
+                    torch.save(self.scheduler.state_dict(), os.path.join(self.save_folder, "scheduler.pt"))
                 
         return history
 

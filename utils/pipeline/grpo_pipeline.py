@@ -129,24 +129,49 @@ class GRPOPipeline:
         # Load local checkpoint if specified
         ex_input_ids = torch.zeros((1, 10), dtype=torch.int64)
         ex_input_mask = torch.ones((1, 10), dtype=torch.int64)
-        before_model_out, _, _ = model(ex_input_ids, ex_input_mask)
         
-        if config.pretrained_path is not None:
-            if os.path.isdir(config.pretrained_path):
-                encoder_path = os.path.join(config.pretrained_path, "encoder.pt")
-                adaptive_layer_path = os.path.join(config.pretrained_path, "adaptive_layer.pt")
+        before_model_out = model(ex_input_ids, ex_input_mask)
+        if isinstance(before_model_out, tuple):
+            before_model_out = before_model_out[0]
+
+        load_dir = None
+        save_root_has_checkpoint = False
+        if hasattr(self, "SAVE_ROOT") and self.SAVE_ROOT is not None:
+            for fname in ["encoder.pt", "adaptive_layer.pt", "checkpoint.pt"]:
+                if os.path.exists(os.path.join(self.SAVE_ROOT, fname)):
+                    save_root_has_checkpoint = True
+                    break
+        
+        if save_root_has_checkpoint:
+            load_dir = self.SAVE_ROOT
+            print(f"Found checkpoint files in current training output directory ({self.SAVE_ROOT}). Loading from here instead of config path.")
+        elif config.pretrained_path is not None:
+            load_dir = config.pretrained_path
+
+        if load_dir is not None:
+            if os.path.isdir(load_dir):
+                encoder_path = os.path.join(load_dir, "encoder.pt")
+                adaptive_layer_path = os.path.join(load_dir, "adaptive_layer.pt")
+                checkpoint_path = os.path.join(load_dir, "checkpoint.pt")
+                
                 if os.path.exists(encoder_path):
                     model.encoder.load_state_dict(torch.load(encoder_path, map_location="cpu"))
                     print(f"Loaded encoder from {encoder_path}")
                 if os.path.exists(adaptive_layer_path):
                     model.adaptive_layer.load_state_dict(torch.load(adaptive_layer_path, map_location="cpu"))
                     print(f"Loaded adaptive_layer from {adaptive_layer_path}")
+                if os.path.exists(checkpoint_path):
+                    model.load_state_dict(torch.load(checkpoint_path, map_location="cpu"))
+                    print(f"Loaded full model checkpoint from {checkpoint_path}")
             else:
-                state_dict = torch.load(config.pretrained_path, map_location="cpu")
+                state_dict = torch.load(load_dir, map_location="cpu")
                 model.load_state_dict(state_dict)
-                print(f"Loaded model checkpoint from {config.pretrained_path}")
+                print(f"Loaded model checkpoint file from {load_dir}")
         
-        after_model_out, _, _ = model(ex_input_ids, ex_input_mask)
+        after_model_out = model(ex_input_ids, ex_input_mask)
+        if isinstance(after_model_out, tuple):
+            after_model_out = after_model_out[0]
+
         if not torch.equal(before_model_out, after_model_out):
             print("Successfully loaded model checkpoint: diff on model output")
         else:
@@ -181,6 +206,16 @@ class GRPOPipeline:
                 num_warmup_steps=warmup_steps,
                 num_training_steps=total_steps
             )
+
+        # Load optimizer and scheduler state dicts from current training output directory (SAVEPATH root) if they exist
+        optimizer_path = os.path.join(self.SAVE_ROOT, "optimizer.pt")
+        scheduler_path = os.path.join(self.SAVE_ROOT, "scheduler.pt")
+        if os.path.exists(optimizer_path):
+            optimizer.load_state_dict(torch.load(optimizer_path, map_location="cpu"))
+            print(f"Loaded optimizer state from {optimizer_path}")
+        if scheduler is not None and os.path.exists(scheduler_path):
+            scheduler.load_state_dict(torch.load(scheduler_path, map_location="cpu"))
+            print(f"Loaded scheduler state from {scheduler_path}")
             
         # Initialize GRPOTrainer
         trainer_kwargs = {

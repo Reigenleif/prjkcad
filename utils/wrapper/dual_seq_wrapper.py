@@ -192,6 +192,10 @@ class DualSeqWrapper(torch.nn.Module):
 
     def save(self, folder_path):
         os.makedirs(folder_path, exist_ok=True)
+        if hasattr(self.model, "encoder") and self.model.encoder is not None:
+            torch.save(self.model.encoder.state_dict(), os.path.join(folder_path, "encoder.pt"))
+        if hasattr(self.model, "adaptive_layer") and self.model.adaptive_layer is not None:
+            torch.save(self.model.adaptive_layer.state_dict(), os.path.join(folder_path, "adaptive_layer.pt"))
         torch.save(self.model.state_dict(), os.path.join(folder_path, "checkpoint.pt"))
 
     @classmethod

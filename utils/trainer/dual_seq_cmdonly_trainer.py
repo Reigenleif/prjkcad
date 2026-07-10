@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping
 from typing import Any, Callable, Tuple
 
@@ -183,9 +184,9 @@ class DualSeqCMDOnlyTrainer:
         history_df.to_csv(history_file_path, index=False)
         
     def save_on_best_epoch(self, 
-                   folder_path: str, 
-                   best_epoch: int, 
-                   best_epoch_metrics: dict[str, float]):
+                    folder_path: str, 
+                    best_epoch: int, 
+                    best_epoch_metrics: dict[str, float]):
         
         # Save best epoch metrics as column epoch, metric1, metric2, ...
         df = pd.DataFrame([{**{"epoch": best_epoch}, **best_epoch_metrics}])
@@ -194,6 +195,12 @@ class DualSeqCMDOnlyTrainer:
         
         # Save model state dict
         self.wrapper.save(folder_path)
+        
+        # Save optimizer and scheduler
+        if self.optimizer is not None:
+            torch.save(self.optimizer.state_dict(), os.path.join(folder_path, "optimizer.pt"))
+        if self.scheduler is not None:
+            torch.save(self.scheduler.state_dict(), os.path.join(folder_path, "scheduler.pt"))
 
     def fit(self, epochs: int, verbose: bool = True):
         init_str = f"Starting training for {epochs} epochs"
@@ -278,6 +285,10 @@ class DualSeqCMDOnlyTrainer:
             self.save_progression(self.save_folder, history)
             if best_epoch_or_step == -1:
                 self.wrapper.save(self.save_folder)
+                if self.optimizer is not None:
+                    torch.save(self.optimizer.state_dict(), os.path.join(self.save_folder, "optimizer.pt"))
+                if self.scheduler is not None:
+                    torch.save(self.scheduler.state_dict(), os.path.join(self.save_folder, "scheduler.pt"))
                 
         return history
 

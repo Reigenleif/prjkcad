@@ -102,6 +102,7 @@ class PretrainWrapper(nn.Module):
         os.makedirs(folder_path, exist_ok=True)
         torch.save(self.encoder.state_dict(), os.path.join(folder_path, "encoder.pt"))
         torch.save(self.adaptive_layer.state_dict(), os.path.join(folder_path, "adaptive_layer.pt"))
+        torch.save(self.reconstructor.state_dict(), os.path.join(folder_path, "checkpoint.pt"))
 
     def train(self, mode: bool = True):
         self.reconstructor.train(mode)
