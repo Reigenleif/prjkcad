@@ -5,7 +5,7 @@ from typing import Any, Callable, Tuple
 
 import numpy as np
 import torch
-from tqdm import tqdm
+from tqdm.auto import tqdm
 import pandas as pd
 
 from utils.wrapper.dual_seq_cmdonly import DualSeqCMDOnlyWrapper
@@ -23,6 +23,31 @@ def _move_to_device(batch: Any, device: torch.device):
     if hasattr(batch, "to"):
         return batch.to(device)
     return batch
+
+
+def format_log_header(metrics: dict[str, Any]) -> str:
+    special_keys = ["epoch", "step", "train_loss"]
+    other_keys = sorted([k for k in metrics.keys() if k not in special_keys])
+    ordered_keys = [k for k in special_keys if k in metrics] + other_keys
+    header = " | ".join(f"{k:<18}" for k in ordered_keys)
+    separator = "-" * len(header)
+    return f"{header}\n{separator}"
+
+
+def format_log_row(metrics: dict[str, Any], header_metrics: dict[str, Any]) -> str:
+    special_keys = ["epoch", "step", "train_loss"]
+    other_keys = sorted([k for k in header_metrics.keys() if k not in special_keys])
+    ordered_keys = [k for k in special_keys if k in header_metrics] + other_keys
+    row_parts = []
+    for k in ordered_keys:
+        val = metrics.get(k, "")
+        if isinstance(val, float):
+            row_parts.append(f"{val:<18.4f}")
+        elif isinstance(val, (int, bool)):
+            row_parts.append(f"{str(val):<18}")
+        else:
+            row_parts.append(f"{str(val):<18}")
+    return " | ".join(row_parts)
 
 
 class DualSeqCMDOnlyTrainer:
@@ -43,7 +68,9 @@ class DualSeqCMDOnlyTrainer:
         quant_type: str | None = None,
         save_folder: str | None = None,
         best_metric_key: str = "val_avg_f1",
-        best_metric_mode: str = "max"
+        best_metric_mode: str = "max",
+        eval_steps: int = 1000,
+        scheduler = None
     ):
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.wrapper = model_wrapper.to(self.device)
@@ -65,7 +92,9 @@ class DualSeqCMDOnlyTrainer:
         self.save_folder = save_folder
         self.best_metric_key = best_metric_key
         self.best_metric_mode = best_metric_mode
-        
+        self.eval_steps = eval_steps
+        self.scheduler = scheduler
+
     def _scheduled_ratio(self, epoch: int) -> float:
         if self.schedule_fn is not None:
             return float(self.schedule_fn(epoch))
@@ -86,7 +115,6 @@ class DualSeqCMDOnlyTrainer:
         return self.criterion(logits, cmds)
 
     def train_step(self, batch: Tuple, ratio: float):
-        
         self.wrapper.train()
         self.optimizer.zero_grad(set_to_none=True)
         
@@ -103,6 +131,8 @@ class DualSeqCMDOnlyTrainer:
         loss.backward()
         torch.nn.utils.clip_grad_norm_(self.wrapper.model.parameters(), self.max_grad_norm)
         self.optimizer.step()
+        if self.scheduler is not None:
+            self.scheduler.step()
         return {"loss": float(loss.detach().cpu().item())}
 
     @torch.no_grad()
@@ -164,7 +194,7 @@ class DualSeqCMDOnlyTrainer:
         
         # Save model state dict
         self.wrapper.save(folder_path)
-        
+
     def fit(self, epochs: int, verbose: bool = True):
         init_str = f"Starting training for {epochs} epochs"
         if self.quant_type is not None:
@@ -180,54 +210,74 @@ class DualSeqCMDOnlyTrainer:
         print(init_str)
         
         history: list[dict[str, float]] = []
-        best_metric_value = float('-inf')
-        best_epoch = -1
-
+        best_metric_value = float('inf') if self.best_metric_mode == "min" else float('-inf')
+        best_epoch_or_step = -1
+        
+        total_steps = epochs * len(self.train_loader) if self.train_loader else 0
+        global_step = 0
+        train_losses = []
+        
+        pbar = tqdm(total=total_steps, desc="Training")
+        
         for epoch in range(epochs):
             train_ratio = self._scheduled_ratio(epoch)
-            train_metrics: list[dict[str, float]] = []
-            for batch in tqdm(self.train_loader or [], desc=f"Train {epoch + 1}/{epochs}"):
-                train_metrics.append(self.train_step(batch, train_ratio))
-
-            summary: dict[str, float] = {}
-            if train_metrics:
-                for key in train_metrics[0].keys():
-                    summary[f"train_{key}"] = float(np.mean([metric[key] for metric in train_metrics]))
-
-            if self.val_loader is not None:
-                eval_metrics: list[dict[str, float]] = []
-                for batch in tqdm(self.val_loader, desc=f"Eval {epoch + 1}/{epochs}"):
-                    eval_metrics.append(self.eval_step(batch))
-                if eval_metrics:
-                    all_keys = set()
-                    for m in eval_metrics:
-                        all_keys.update(m.keys())
-                    for key in all_keys:
-                        vals = [metric[key] for metric in eval_metrics if metric.get(key) is not None]
-                        if vals:
-                            summary[f"val_{key}"] = float(np.mean(vals))
-
-            history.append(summary)
-            if verbose:
-                print(f"Epoch {epoch + 1}/{epochs}: {summary}")
+            for batch in (self.train_loader or []):
+                step_metrics = self.train_step(batch, train_ratio)
+                loss_val = step_metrics["loss"]
+                train_losses.append(loss_val)
+                avg_loss = np.mean(train_losses)
+                global_step += 1
+                
+                pbar.update(1)
+                pbar.set_description(f"Step {global_step}/{total_steps} | Loss: {avg_loss:.4f}")
+                
+                if global_step % self.eval_steps == 0:
+                    summary: dict[str, float] = {
+                        "epoch": round(global_step / len(self.train_loader), 2) if self.train_loader else epoch + 1,
+                        "step": global_step,
+                        "train_loss": float(avg_loss)
+                    }
+                    
+                    if self.val_loader is not None:
+                        eval_metrics: list[dict[str, float]] = []
+                        for val_batch in self.val_loader:
+                            eval_metrics.append(self.eval_step(val_batch))
+                        if eval_metrics:
+                            all_val_keys = set()
+                            for m in eval_metrics:
+                                all_val_keys.update(m.keys())
+                            for key in all_val_keys:
+                                vals = [metric[key] for metric in eval_metrics if metric.get(key) is not None]
+                                if vals:
+                                    summary[f"val_{key}"] = float(np.mean(vals))
+                    
+                    history.append(summary)
+                    if len(history) == 1:
+                        pbar.write(format_log_header(summary))
+                    pbar.write(format_log_row(summary, history[0]))
+                    
+                    if self.val_loader is not None and self.best_metric_key in summary:
+                        current_metric_value = summary[self.best_metric_key]
+                        is_best = False
+                        if self.best_metric_mode == "min":
+                            if current_metric_value < best_metric_value:
+                                best_metric_value = current_metric_value
+                                is_best = True
+                        else:
+                            if current_metric_value > best_metric_value:
+                                best_metric_value = current_metric_value
+                                is_best = True
+                                
+                        if is_best and self.save_folder is not None:
+                            best_epoch_or_step = global_step
+                            self.save_on_best_epoch(self.save_folder, best_epoch_or_step, summary)
             
-            if self.best_metric_key not in summary:
-                raise ValueError(f"Best metric '{self.best_metric_key}' not found in summary metrics: {summary.keys()}")
-            
-            current_metric_value = summary[self.best_metric_key]
-            if self.best_metric_mode == "min":
-                if current_metric_value < best_metric_value and self.save_folder is not None:
-                    best_metric_value = current_metric_value
-                    best_epoch = epoch
-                    self.save_on_best_epoch(self.save_folder, best_epoch, summary)
-            else:
-                if current_metric_value > best_metric_value and self.save_folder is not None:
-                    best_metric_value = current_metric_value
-                    best_epoch = epoch
-                    self.save_on_best_epoch(self.save_folder, best_epoch, summary)
-
+        pbar.close()
+        
         if self.save_folder is not None:
             self.save_progression(self.save_folder, history)
+            if best_epoch_or_step == -1:
+                self.wrapper.save(self.save_folder)
                 
         return history
 

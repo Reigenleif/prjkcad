@@ -40,6 +40,9 @@ trainer:
       lambda_overgen: 3
   epochs: 100
   max_new_cmds: 128
+  eval_steps: 1000
+  scheduler:
+    warmup_ratio: 0.05
   kwargs:
     teacher_forcing_ratio: 1.0
     max_grad_norm: 1.0

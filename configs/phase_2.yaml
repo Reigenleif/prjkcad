@@ -40,6 +40,9 @@ trainer:
       kl_weight: 0.1
   epochs: 30
   max_new_cmds: 128
+  eval_steps: 1000
+  scheduler:
+    warmup_ratio: 0.05
   kwargs:
     max_grad_norm: 1.0
 pretrained_path: null

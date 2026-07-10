@@ -6,7 +6,7 @@ import random
 import pandas as pd
 import matplotlib.pyplot as plt
 import torch
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, get_cosine_schedule_with_warmup
 
 from utils.set_seed import set_seed
 from utils.data_utils import RefLoader
@@ -22,6 +22,7 @@ from utils.trainer import DualSeqTrainer, PretrainTrainer
 from models import BaseModel
 
 from utils.pipeline.config import Config
+from utils.pipeline.grpo_pipeline import GRPOPipeline
 
 
 def load_config(config_path: str) -> Config:
@@ -82,7 +83,9 @@ class FineTuningPipeline:
         
         # Raw data loading
         if self.dual_seqs is None :
+            train_csv = config.data.train_csv_path or "text2cad_v1.1.csv"
             loader = RefLoader(config.data.data_root,
+                            csv_path=train_csv,
                             max_samples=config.data.max_samples,
                             source_data_type=config.data.source_data_type)
             df = loader.load()
@@ -98,41 +101,86 @@ class FineTuningPipeline:
         
         dual_seqs = self.dual_seqs
 
-        if USE_VAL:
+        val_dual_seqs = None
+        if config.data.val_data_root is not None:
+            val_csv = config.data.val_csv_path or "text2cad_v1.1.csv"
+            val_loader_ref = RefLoader(config.data.val_data_root,
+                                       csv_path=val_csv,
+                                       max_samples=config.data.max_samples,
+                                       source_data_type=config.data.source_data_type)
+            val_df = val_loader_ref.load()
+            val_dual_seqs = DualSeq.from_text2cad_df(val_df)
+            if config.data.sample_ratio:
+                val_sample_size = int(len(val_dual_seqs) * config.data.sample_ratio)
+                val_dual_seqs = random.sample(val_dual_seqs, val_sample_size)
+
+        if val_dual_seqs is not None:
             if config.data.is_cmdonly:
-                train_loader, val_loader = create_cmdonly_data_loader(dual_seqs,
-                                                                    text_tokenizer,
-                                                                    description_level=config.data.description_level,
-                                                                    batch_size=config.data.batch_size,
-                                                                    num_workers=config.data.num_workers,
-                                                                    val_ratio=config.data.eval_split_ratio,
-                                                                    shuffle=True)
+                train_loader = create_cmdonly_data_loader(dual_seqs,
+                                                          text_tokenizer,
+                                                          description_level=config.data.description_level,
+                                                          batch_size=config.data.batch_size,
+                                                          num_workers=config.data.num_workers,
+                                                          val_ratio=0.0,
+                                                          shuffle=True)
+                val_loader = create_cmdonly_data_loader(val_dual_seqs,
+                                                        text_tokenizer,
+                                                        description_level=config.data.description_level,
+                                                        batch_size=config.data.batch_size,
+                                                        num_workers=config.data.num_workers,
+                                                        val_ratio=0.0,
+                                                        shuffle=False)
             else:
-                train_loader, val_loader = create_dualseq_data_loader(dual_seqs,
+                train_loader = create_dualseq_data_loader(dual_seqs,
+                                                          text_tokenizer,
+                                                          description_level=config.data.description_level,
+                                                          batch_size=config.data.batch_size,
+                                                          num_workers=config.data.num_workers,
+                                                          val_ratio=0.0,
+                                                          shuffle=True)
+                val_loader = create_dualseq_data_loader(val_dual_seqs,
+                                                        text_tokenizer,
+                                                        description_level=config.data.description_level,
+                                                        batch_size=config.data.batch_size,
+                                                        num_workers=config.data.num_workers,
+                                                        val_ratio=0.0,
+                                                        shuffle=False)
+        else:
+            if USE_VAL:
+                if config.data.is_cmdonly:
+                    train_loader, val_loader = create_cmdonly_data_loader(dual_seqs,
+                                                                        text_tokenizer,
+                                                                        description_level=config.data.description_level,
+                                                                        batch_size=config.data.batch_size,
+                                                                        num_workers=config.data.num_workers,
+                                                                        val_ratio=config.data.eval_split_ratio,
+                                                                        shuffle=True)
+                else:
+                    train_loader, val_loader = create_dualseq_data_loader(dual_seqs,
+                                                                text_tokenizer,
+                                                                description_level=config.data.description_level,
+                                                                batch_size=config.data.batch_size,
+                                                                num_workers=config.data.num_workers,
+                                                                val_ratio=config.data.eval_split_ratio,
+                                                                shuffle=True)
+            else:
+                if config.data.is_cmdonly:
+                    train_loader = create_cmdonly_data_loader(dual_seqs,
                                                             text_tokenizer,
                                                             description_level=config.data.description_level,
                                                             batch_size=config.data.batch_size,
                                                             num_workers=config.data.num_workers,
-                                                            val_ratio=config.data.eval_split_ratio,
+                                                            val_ratio=0.0,
                                                             shuffle=True)
-        else:
-            if config.data.is_cmdonly:
-                train_loader = create_cmdonly_data_loader(dual_seqs,
-                                                        text_tokenizer,
-                                                        description_level=config.data.description_level,
-                                                        batch_size=config.data.batch_size,
-                                                        num_workers=config.data.num_workers,
-                                                        val_ratio=0.0,
-                                                        shuffle=True)
-            else:
-                train_loader = create_dualseq_data_loader(dual_seqs,
-                                                        text_tokenizer,
-                                                        description_level=config.data.description_level,
-                                                        batch_size=config.data.batch_size,
-                                                        num_workers=config.data.num_workers,
-                                                        val_ratio=0.0,
-                                                        shuffle=True)
-            val_loader = None
+                else:
+                    train_loader = create_dualseq_data_loader(dual_seqs,
+                                                            text_tokenizer,
+                                                            description_level=config.data.description_level,
+                                                            batch_size=config.data.batch_size,
+                                                            num_workers=config.data.num_workers,
+                                                            val_ratio=0.0,
+                                                            shuffle=True)
+                val_loader = None
         
         # Wrapper and Model loading
         model_cls = BaseModel
@@ -179,7 +227,7 @@ class FineTuningPipeline:
             print("Successfully loaded model checkpoint: diff on model output")
         else:
             print("Not loading model checkpoint: diff on model output is 0")
-
+ 
         # Init wrapper
         if config.data.is_cmdonly:
             wrapper = DualSeqCMDOnlyWrapper(model, text_tokenizer)
@@ -206,7 +254,26 @@ class FineTuningPipeline:
             raise ValueError(f"Unsupported optimizer: {config.trainer.optimizer}")
         optimizer = optimizer_cls(wrapper.parameters(), **config.trainer.optimizer_kwargs)
         
+        # Scheduler loading
+        scheduler = None
+        if config.trainer.scheduler is not None:
+            scheduler_cfg = config.trainer.scheduler
+            total_steps = config.trainer.epochs * len(train_loader)
+            warmup_steps = scheduler_cfg.warmup_steps
+            if scheduler_cfg.warmup_ratio is not None:
+                warmup_steps = int(scheduler_cfg.warmup_ratio * total_steps)
+            scheduler = get_cosine_schedule_with_warmup(
+                optimizer,
+                num_warmup_steps=warmup_steps,
+                num_training_steps=total_steps
+            )
+
         # Trainer initialization
+        trainer_kwargs = {
+            "eval_steps": config.trainer.eval_steps,
+            "scheduler": scheduler,
+            **config.trainer.kwargs
+        }
         if config.data.is_cmdonly:
             trainer = DualSeqCMDOnlyTrainer(
                 wrapper,
@@ -215,7 +282,7 @@ class FineTuningPipeline:
                 train_loader=train_loader,
                 val_loader=val_loader,
                 save_folder=self.SAVE_ROOT,
-                **config.trainer.kwargs
+                **trainer_kwargs
             )
         else:
             trainer = DualSeqTrainer(
@@ -225,7 +292,7 @@ class FineTuningPipeline:
                 train_loader=train_loader,
                 val_loader=val_loader,
                 save_folder=self.SAVE_ROOT,
-                **config.trainer.kwargs
+                **trainer_kwargs
             )  
         
         # Keep all training objects in the pipeline
@@ -550,8 +617,10 @@ class PretrainPipeline:
             raise ValueError(f"Unsupported tokenizer source: {config.tokenizer.source}")
 
         if self.dual_seqs is None:
+            train_csv = config.data.train_csv_path or "text2cad_v1.1.csv"
             loader = RefLoader(
                 config.data.data_root,
+                csv_path=train_csv,
                 max_samples=config.data.max_samples,
                 source_data_type=config.data.source_data_type
             )
@@ -562,15 +631,60 @@ class PretrainPipeline:
                 dual_seqs = random.sample(dual_seqs, sample_size)
             self.dual_seqs = dual_seqs
 
-        train_loader, val_loader = create_pretrain_data_loader(
-            self.dual_seqs,
-            tokenizer=text_tokenizer,
-            description_level=config.data.description_level,
-            batch_size=config.data.batch_size,
-            num_workers=config.data.num_workers,
-            val_ratio=config.data.eval_split_ratio,
-            shuffle=True
-        )
+        val_dual_seqs = None
+        if config.data.val_data_root is not None:
+            val_csv = config.data.val_csv_path or "text2cad_v1.1.csv"
+            val_loader_ref = RefLoader(config.data.val_data_root,
+                                       csv_path=val_csv,
+                                       max_samples=config.data.max_samples,
+                                       source_data_type=config.data.source_data_type)
+            val_df = val_loader_ref.load()
+            val_dual_seqs = DualSeq.from_text2cad_df(val_df)
+            if config.data.sample_ratio < 1.0:
+                val_sample_size = int(len(val_dual_seqs) * config.data.sample_ratio)
+                val_dual_seqs = random.sample(val_dual_seqs, val_sample_size)
+
+        if val_dual_seqs is not None:
+            train_loader = create_pretrain_data_loader(
+                self.dual_seqs,
+                tokenizer=text_tokenizer,
+                description_level=config.data.description_level,
+                batch_size=config.data.batch_size,
+                num_workers=config.data.num_workers,
+                val_ratio=0.0,
+                shuffle=True
+            )
+            val_loader = create_pretrain_data_loader(
+                val_dual_seqs,
+                tokenizer=text_tokenizer,
+                description_level=config.data.description_level,
+                batch_size=config.data.batch_size,
+                num_workers=config.data.num_workers,
+                val_ratio=0.0,
+                shuffle=False
+            )
+        else:
+            if config.data.eval_split_ratio > 0:
+                train_loader, val_loader = create_pretrain_data_loader(
+                    self.dual_seqs,
+                    tokenizer=text_tokenizer,
+                    description_level=config.data.description_level,
+                    batch_size=config.data.batch_size,
+                    num_workers=config.data.num_workers,
+                    val_ratio=config.data.eval_split_ratio,
+                    shuffle=True
+                )
+            else:
+                train_loader = create_pretrain_data_loader(
+                    self.dual_seqs,
+                    tokenizer=text_tokenizer,
+                    description_level=config.data.description_level,
+                    batch_size=config.data.batch_size,
+                    num_workers=config.data.num_workers,
+                    val_ratio=0.0,
+                    shuffle=True
+                )
+                val_loader = None
 
         n_args = get_dualseq_schema()["n_args"]
         base_model = BaseModel(
@@ -598,6 +712,20 @@ class PretrainPipeline:
 
         optimizer = optimizer_cls(wrapper.parameters(), **config.trainer.optimizer_kwargs)
 
+        # Scheduler loading
+        scheduler = None
+        if config.trainer.scheduler is not None:
+            scheduler_cfg = config.trainer.scheduler
+            total_steps = config.trainer.epochs * len(train_loader)
+            warmup_steps = scheduler_cfg.warmup_steps
+            if scheduler_cfg.warmup_ratio is not None:
+                warmup_steps = int(scheduler_cfg.warmup_ratio * total_steps)
+            scheduler = get_cosine_schedule_with_warmup(
+                optimizer,
+                num_warmup_steps=warmup_steps,
+                num_training_steps=total_steps
+            )
+
         trainer = PretrainTrainer(
             model_wrapper=wrapper,
             criterion=criterion,
@@ -608,7 +736,9 @@ class PretrainPipeline:
             max_grad_norm=config.trainer.kwargs.get("max_grad_norm", 1.0),
             save_folder=self.SAVE_ROOT,
             best_metric_key="val_f1",
-            best_metric_mode="max"
+            best_metric_mode="max",
+            eval_steps=config.trainer.eval_steps,
+            scheduler=scheduler
         )
 
         self.trainer = trainer
@@ -631,7 +761,7 @@ class PretrainPipeline:
 class TrainModelPipeline:
     """
     Factory/Router class for CAD model training/pretraining pipeline.
-    Instantiates FineTuningPipeline or PretrainPipeline based on config type.
+    Instantiates FineTuningPipeline, PretrainPipeline or GRPOPipeline based on config type.
     """
     def __new__(cls, cfg: Union[Config, Dict[str, Any], str]):
         if isinstance(cfg, str):
@@ -639,7 +769,10 @@ class TrainModelPipeline:
         elif isinstance(cfg, dict):
             cfg = Config.from_dict(cfg)
 
-        if getattr(cfg, "type", "fine_tuning") == "pretrain":
+        cfg_type = cfg.type
+        if cfg_type == "pretrain":
             return PretrainPipeline(cfg)
+        elif cfg_type == "grpo":
+            return GRPOPipeline(cfg)
         else:
             return FineTuningPipeline(cfg)
