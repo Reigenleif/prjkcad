@@ -56,18 +56,17 @@ def _from_dict_helper(cls, d: Any) -> Any:
 # and will be used to create a Config object
 @dataclass
 class DataConfig(_ConfigBase):
-    data_root: str
+    data_folder: str
+    metadata_csv: str
     source_data_type: str
     is_cmdonly: bool
     eval_split_ratio: float
     num_workers: int
     description_level: str
     batch_size: int
+    split_json: Optional[str] = None
     sample_ratio: Optional[float] = None
     max_samples: Optional[int] = None
-    train_csv_path: Optional[str] = None
-    val_data_root: Optional[str] = None
-    val_csv_path: Optional[str] = None
 
 @dataclass
 class TokenizerConfig(_ConfigBase):

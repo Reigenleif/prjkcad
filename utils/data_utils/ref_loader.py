@@ -29,7 +29,11 @@ class RefLoader:
             raise ValueError(f"Unsupported source data type: {source_data_type}. Must be one of {self.SOURCE_DATA_TYPES}")
         
         self.data_root = Path(data_root).expanduser().resolve()
-        self.csv_path = self.data_root / Path(csv_path)
+        csv_path_obj = Path(csv_path)
+        if csv_path_obj.is_absolute() or csv_path_obj.exists():
+            self.csv_path = csv_path_obj.expanduser().resolve()
+        else:
+            self.csv_path = (self.data_root / csv_path_obj).expanduser().resolve()
         self.failed_uids: list[str] = []
         self.max_samples = max_samples
         self.source_data_type = source_data_type
@@ -124,3 +128,69 @@ class RefLoader:
         uid_text = str(uid).strip()
         folder, item_id = self._split_uid(uid_text)
         return f"{folder}/{item_id}"
+
+
+def load_split_data(
+    data_folder: str,
+    metadata_csv: str,
+    source_data_type: str = "text2cad",
+    split_json: str | None = None,
+    max_samples: int | None = None,
+    sample_ratio: float | None = None,
+) -> tuple[list[DualSeq], list[DualSeq] | None]:
+    import os
+    import random
+    from ..dual_seq import DualSeq
+    
+    if split_json and os.path.exists(split_json):
+        print(f"Loading split from JSON: {split_json}")
+        with open(split_json, "r") as f:
+            splits = json.load(f)
+        train_uids = set(splits.get("train", []))
+        val_uids = set(splits.get("validation", []))
+        
+        loader = RefLoader(
+            data_folder,
+            csv_path=metadata_csv,
+            max_samples=None,
+            source_data_type=source_data_type
+        )
+        df_all = loader.load_csv()
+        df_all["normalized_uid"] = df_all["uid"].apply(loader._normalize_uid)
+        
+        df_train = df_all[df_all["normalized_uid"].isin(train_uids)]
+        df_val = df_all[df_all["normalized_uid"].isin(val_uids)]
+        
+        if max_samples is not None:
+            df_train = df_train.head(max_samples)
+            df_val = df_val.head(max_samples)
+            
+        df_train_loaded = loader.load_jsons(df=df_train)
+        df_val_loaded = loader.load_jsons(df=df_val)
+        
+        dual_seqs = DualSeq.from_text2cad_df(df_train_loaded)
+        val_dual_seqs = DualSeq.from_text2cad_df(df_val_loaded)
+        
+        if sample_ratio and sample_ratio < 1.0:
+            sample_size = int(len(dual_seqs) * sample_ratio)
+            dual_seqs = random.sample(dual_seqs, sample_size)
+            
+            val_sample_size = int(len(val_dual_seqs) * sample_ratio)
+            val_dual_seqs = random.sample(val_dual_seqs, val_sample_size)
+            
+        return dual_seqs, val_dual_seqs
+    else:
+        loader = RefLoader(
+            data_folder,
+            csv_path=metadata_csv,
+            max_samples=max_samples,
+            source_data_type=source_data_type
+        )
+        df = loader.load()
+        dual_seqs = DualSeq.from_text2cad_df(df)
+        
+        if sample_ratio and sample_ratio < 1.0:
+            sample_size = int(len(dual_seqs) * sample_ratio)
+            dual_seqs = random.sample(dual_seqs, sample_size)
+            
+        return dual_seqs, None

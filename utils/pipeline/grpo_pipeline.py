@@ -7,7 +7,7 @@ import torch
 from transformers import AutoTokenizer, get_cosine_schedule_with_warmup
 
 from utils.set_seed import set_seed
-from utils.data_utils import RefLoader
+from utils.data_utils import RefLoader, load_split_data
 from utils.dual_seq import DualSeq, get_dualseq_schema
 from utils.data_utils import create_dualseq_data_loader
 from utils.wrapper.grpo_wrapper import GRPOWrapper
@@ -33,14 +33,15 @@ class GRPOPipeline:
         self.train_loader = None
         self.val_loader = None
         self.dual_seqs = None
+        self.val_dual_seqs = None
 
     def load_things(self):
         config = self.cfg
         
         # Validation checks
-        has_val_root = config.data.val_data_root is not None
+        has_split_json = config.data.split_json is not None
         has_val_ratio = config.data.eval_split_ratio > 0.0
-        if not (has_val_root or has_val_ratio):
+        if not (has_split_json or has_val_ratio):
             raise ValueError("GRPO pipeline requires a validation set for reward scoring.")
             
         if config.data.is_cmdonly:
@@ -63,35 +64,19 @@ class GRPOPipeline:
             
         # Raw data loading
         if self.dual_seqs is None:
-            train_csv = config.data.train_csv_path or "text2cad_v1.1.csv"
-            loader = RefLoader(config.data.data_root,
-                            csv_path=train_csv,
-                            max_samples=config.data.max_samples,
-                            source_data_type=config.data.source_data_type)
-            df = loader.load()
-            dual_seqs = DualSeq.from_text2cad_df(df)
-            
-            if config.data.sample_ratio:
-                sample_size = int(len(dual_seqs) * config.data.sample_ratio)
-                dual_seqs = random.sample(dual_seqs, sample_size)
-                print(f"Sampled {sample_size} instances from the dataset based on the specified sample ratio of {config.data.sample_ratio}.")
+            dual_seqs, val_dual_seqs = load_split_data(
+                data_folder=config.data.data_folder,
+                metadata_csv=config.data.metadata_csv,
+                source_data_type=config.data.source_data_type,
+                split_json=config.data.split_json,
+                max_samples=config.data.max_samples,
+                sample_ratio=config.data.sample_ratio
+            )
+            self.dual_seqs = dual_seqs
+            self.val_dual_seqs = val_dual_seqs
 
-            self.dual_seqs = dual_seqs 
-        
         dual_seqs = self.dual_seqs
-
-        val_dual_seqs = None
-        if config.data.val_data_root is not None:
-            val_csv = config.data.val_csv_path or "text2cad_v1.1.csv"
-            val_loader_ref = RefLoader(config.data.val_data_root,
-                                       csv_path=val_csv,
-                                       max_samples=config.data.max_samples,
-                                       source_data_type=config.data.source_data_type)
-            val_df = val_loader_ref.load()
-            val_dual_seqs = DualSeq.from_text2cad_df(val_df)
-            if config.data.sample_ratio:
-                val_sample_size = int(len(val_dual_seqs) * config.data.sample_ratio)
-                val_dual_seqs = random.sample(val_dual_seqs, val_sample_size)
+        val_dual_seqs = self.val_dual_seqs
 
         if val_dual_seqs is not None:
             train_loader = create_dualseq_data_loader(dual_seqs,

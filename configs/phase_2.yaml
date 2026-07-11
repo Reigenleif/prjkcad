@@ -1,7 +1,9 @@
 run_name: pretrain
 type: pretrain
 data:
-  data_root: data/text2cad
+  data_folder: data/text2cad
+  metadata_csv: data/text2cad/text2cad_v1.1.csv
+  split_json: data/text2cad/train_test_val.json
   source_data_type: text2cad
   is_cmdonly: false
   sample_ratio: 0.05

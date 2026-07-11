@@ -1,10 +1,12 @@
 run_name: fine_tune
 data:
-  data_root: data/text2cad
+  data_folder: data/text2cad
+  metadata_csv: data/text2cad/text2cad_v1.1.csv
+  split_json: data/text2cad/train_test_val.json
   source_data_type: text2cad
   is_cmdonly: false
   sample_ratio: 1
-  eval_split_ratio: 0.2
+  eval_split_ratio: 0.04
   num_workers: 4
   description_level: expert
   batch_size: 16
@@ -40,7 +42,7 @@ trainer:
       lambda_overgen: 3
   epochs: 30
   max_new_cmds: 128
-  eval_steps: 1000
+  eval_steps: 12500
   scheduler:
     warmup_ratio: 0.05
   kwargs:
