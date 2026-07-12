@@ -46,8 +46,9 @@ class SelfAttentionBlock(nn.Module):
     """
     Designed only for Self-Attention
     """
-    def __init__(self, d_model: int, n_heads: int = 8):
+    def __init__(self, d_model: int, n_heads: int = 8, is_causal: bool = False):
         super().__init__()
+        self.is_causal = is_causal
         self.n_heads = n_heads
         self.head_dim = d_model // n_heads
         assert self.head_dim * n_heads == d_model
@@ -68,7 +69,7 @@ class SelfAttentionBlock(nn.Module):
         q = self.q_proj(x).view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
         k = self.k_proj(x).view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
         v = self.v_proj(x).view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
-        attn = F.scaled_dot_product_attention(q, k, v, is_causal=False)
+        attn = F.scaled_dot_product_attention(q, k, v, is_causal=self.is_causal)
         attn = attn.transpose(1, 2).contiguous().view(B, T, D)
         x = self.norm1(x + self.out_proj(attn))
         x = self.norm2(x + self.ffn(x))

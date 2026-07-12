@@ -170,9 +170,6 @@ class TorchTransformerDecoder(nn.Module):
             raise ValueError("Either input_ids or inputs_embeds must be provided")
 
         seq_len = tgt_state.size(1)
-        positions = torch.arange(seq_len, device=tgt_state.device)
-        pos_embed = self.pos_embedding(positions)[None, :, :]
-        tgt_state = tgt_state + pos_embed
 
         causal_mask = self._causal_mask(seq_len, tgt_state.device)
 

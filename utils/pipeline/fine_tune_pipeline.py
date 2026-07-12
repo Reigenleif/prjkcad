@@ -198,13 +198,15 @@ class FineTuningPipeline:
                 if os.path.exists(adaptive_layer_path):
                     model.adaptive_layer.load_state_dict(torch.load(adaptive_layer_path, map_location="cpu"))
                     print(f"Loaded adaptive_layer from {adaptive_layer_path}")
-                if os.path.exists(checkpoint_path):
+                
+                # Only load the full checkpoint if we are resuming from the current run directory (SAVE_ROOT)
+                if load_dir == self.SAVE_ROOT and os.path.exists(checkpoint_path):
                     model.load_state_dict(torch.load(checkpoint_path, map_location="cpu"))
                     print(f"Loaded full model checkpoint from {checkpoint_path}")
             else:
                 state_dict = torch.load(load_dir, map_location="cpu")
-                model.load_state_dict(state_dict)
-                print(f"Loaded model checkpoint file from {load_dir}")
+                model.load_state_dict(state_dict, strict=False)
+                print(f"Loaded model checkpoint file from {load_dir} (strict=False)")
         
         after_model_out = model(ex_input_ids, ex_input_mask)
         if isinstance(after_model_out, tuple):

@@ -67,8 +67,12 @@ class BaseModel(nn.Module):
             )
 
         if cfg.freeze_encoder:
-            for param in self.encoder.parameters():
-                param.requires_grad = False
+            if hasattr(self.encoder, "encoder"):
+                for param in self.encoder.encoder.parameters():
+                    param.requires_grad = False
+            else:
+                for param in self.encoder.parameters():
+                    param.requires_grad = False
 
         self.adaptive_layer = AdaptiveLayer(cfg.adaptive_layer, self.d_model)
 
@@ -201,8 +205,7 @@ class BaseModel(nn.Module):
             encoder_hidden_states = encoder_out_embeddings
         else:
             encoder_hidden_states = self.encoder(input_ids, attention_mask)
-
-        encoder_hidden_states = self.adaptive_layer(encoder_hidden_states)
+            encoder_hidden_states = self.adaptive_layer(encoder_hidden_states)
 
         B = encoder_hidden_states.size(0)
 

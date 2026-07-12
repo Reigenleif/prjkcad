@@ -35,8 +35,8 @@ class CADArgsSDPAEmbedding(nn.Module):
         self.arg_embedding = nn.Linear(n_args, d_model)
         self.pos_embedding = nn.Embedding(max_len, d_model)
         self.attn_blocks = nn.Sequential(
-            SelfAttentionBlock(d_model, n_heads),
-            SelfAttentionBlock(d_model, n_heads),
+            SelfAttentionBlock(d_model, n_heads, is_causal=True),
+            SelfAttentionBlock(d_model, n_heads, is_causal=True),
         )
 
     def forward(self, arg_sequences: torch.Tensor) -> torch.Tensor:
@@ -55,8 +55,8 @@ class CADArgsRoPESDPAEmbedding(nn.Module):
         self.arg_embedding = nn.Linear(n_args, d_model)
         self.rope = RotaryPositionalEncoding(d_model, max_len=max_len)
         self.attn_blocks = nn.Sequential(
-            SelfAttentionBlock(d_model, n_heads),
-            SelfAttentionBlock(d_model, n_heads),
+            SelfAttentionBlock(d_model, n_heads, is_causal=True),
+            SelfAttentionBlock(d_model, n_heads, is_causal=True),
         )
 
     def forward(self, arg_sequences: torch.Tensor) -> torch.Tensor:

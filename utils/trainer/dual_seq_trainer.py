@@ -226,16 +226,24 @@ class DualSeqTrainer:
             torch.save(self.scheduler.state_dict(), os.path.join(folder_path, "scheduler.pt"))
 
     def fit(self, epochs: int, verbose: bool = True):
-        init_str = f"Starting training for {epochs} epochs"
+        init_str = f"Starting training for {epochs} epochs\n"
         if self.quant_type is not None:
-            init_str += f" with quantization: {self.quant_type}"
+            init_str += f"Quantization: {self.quant_type}.\n"
         
         try:
             model_param_cnt = sum(p.numel() for p in self.wrapper.model.parameters())
             trainable_param_cnt = sum(p.numel() for p in self.wrapper.model.parameters() if p.requires_grad)
-            init_str += f". Model parameters: {model_param_cnt:,} (trainable: {trainable_param_cnt:,})"
+            init_str += f"Model parameters: {model_param_cnt:,} (trainable: {trainable_param_cnt:,})\n"
         except Exception:
             pass    
+
+        # Number of train batches
+        init_str += f"Number of train batches: {len(self.train_loader)}\n"
+        # Number of val batches
+        if self.val_loader is not None:
+            init_str += f"Number of val batches: {len(self.val_loader)}\n"
+        else:
+            init_str += "No validation loader provided\n"
         
         print(init_str)
         
@@ -249,11 +257,51 @@ class DualSeqTrainer:
         
         pbar = tqdm(total=total_steps, desc="Training")
         
+        dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        use_amp = self.quant_type == "fp16"
+        scaler = torch.amp.GradScaler("cuda") if (use_amp and dtype == torch.float16) else None
+        
         for epoch in range(epochs):
             train_ratio = self._scheduled_ratio(epoch)
             for batch in (self.train_loader or []):
-                step_metrics = self.train_step(batch, train_ratio)
-                loss_val = step_metrics["loss"]
+                self.wrapper.train()
+                self.optimizer.zero_grad(set_to_none=True)
+                
+                batch = _move_to_device(batch, self.device)
+                
+                if use_amp:
+                    with torch.amp.autocast("cuda", dtype=dtype):
+                        outputs = self._forward(batch, train_ratio)
+                        cmd_logits, cmd_preds, arg_preds = outputs
+                        if cmd_logits.shape[1] > batch[1].shape[1]:
+                            pad_length = cmd_logits.shape[1] - batch[1].shape[1]
+                            pad_tensor = torch.full((batch[1].shape[0], pad_length), self.wrapper.model.pad_id, device=batch[1].device, dtype=batch[1].dtype)
+                            batch = (batch[0], torch.cat([batch[1], pad_tensor], dim=1), batch[2], batch[3])
+                        loss = self._loss(outputs, batch)
+                else:
+                    outputs = self._forward(batch, train_ratio)
+                    cmd_logits, cmd_preds, arg_preds = outputs
+                    if cmd_logits.shape[1] > batch[1].shape[1]:
+                        pad_length = cmd_logits.shape[1] - batch[1].shape[1]
+                        pad_tensor = torch.full((batch[1].shape[0], pad_length), self.wrapper.model.pad_id, device=batch[1].device, dtype=batch[1].dtype)
+                        batch = (batch[0], torch.cat([batch[1], pad_tensor], dim=1), batch[2], batch[3])
+                    loss = self._loss(outputs, batch)
+                
+                if scaler is not None:
+                    scaler.scale(loss).backward()
+                    scaler.unscale_(self.optimizer)
+                    torch.nn.utils.clip_grad_norm_(self.wrapper.model.parameters(), self.max_grad_norm)
+                    scaler.step(self.optimizer)
+                    scaler.update()
+                else:
+                    loss.backward()
+                    torch.nn.utils.clip_grad_norm_(self.wrapper.model.parameters(), self.max_grad_norm)
+                    self.optimizer.step()
+                    
+                if self.scheduler is not None:
+                    self.scheduler.step()
+                    
+                loss_val = float(loss.detach().cpu().item())
                 train_losses.append(loss_val)
                 avg_loss = np.mean(train_losses)
                 global_step += 1
@@ -271,7 +319,11 @@ class DualSeqTrainer:
                     if self.val_loader is not None:
                         eval_metrics: list[dict[str, float]] = []
                         for val_batch in self.val_loader:
-                            eval_metrics.append(self.eval_step(val_batch))
+                            if use_amp:
+                                with torch.amp.autocast("cuda", dtype=dtype):
+                                    eval_metrics.append(self.eval_step(val_batch))
+                            else:
+                                eval_metrics.append(self.eval_step(val_batch))
                         if eval_metrics:
                             all_val_keys = set()
                             for m in eval_metrics:
@@ -318,10 +370,5 @@ class DualSeqTrainer:
     def train(self, epochs: int, verbose: bool = True):
         if self.quant_type is not None and self.device != torch.device("cuda"):
             raise ValueError(f"Quantization with type {self.quant_type} is only supported on CUDA devices.")
-        
-        if self.quant_type == "fp16" :
-            dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-            with torch.amp.autocast("cuda", dtype=dtype):
-                return self.fit(epochs=epochs, verbose=verbose)
         
         return self.fit(epochs=epochs, verbose=verbose)
