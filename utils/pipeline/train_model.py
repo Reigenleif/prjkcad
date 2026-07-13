@@ -7,7 +7,6 @@ import pandas as pd
 from utils.pipeline.config import Config
 from utils.pipeline.fine_tune_pipeline import FineTuningPipeline
 from utils.pipeline.pretrain_pipeline import PretrainPipeline
-from utils.pipeline.grpo_pipeline import GRPOPipeline
 
 
 def load_config(config_path: str) -> Config:

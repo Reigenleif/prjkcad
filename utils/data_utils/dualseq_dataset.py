@@ -5,7 +5,7 @@ import torch
 from transformers import PreTrainedTokenizerBase
 from typing_extensions import override
 
-class DualSeqDataset(Dataset[tuple[str, list[str], list[dict]]]):
+class DualSeqDataset(Dataset[tuple[str, list[str], list[int]]]):
     DESCRIPTION_LEVELS: tuple[str, str, str, str] = ("abstract", "beginner", "intermediate", "expert")
     
     def __init__(self, 
@@ -27,7 +27,7 @@ class DualSeqDataset(Dataset[tuple[str, list[str], list[dict]]]):
         return len(self.dual_seqs)
 
     @override
-    def __getitem__(self, index: int) -> tuple[str, list[str], list[dict]]:
+    def __getitem__(self, index: int) -> tuple[str, list[str], list[int]]:
         X = self.dual_seqs[index].descriptions[self.description_level]
         y_cmds = self.dual_seqs[index].cmds
         y_args = self.dual_seqs[index].args
@@ -36,31 +36,24 @@ class DualSeqDataset(Dataset[tuple[str, list[str], list[dict]]]):
 def _make_attn_masks(batch: torch.Tensor) -> torch.Tensor:
     return (batch != 0).long()
 
-def _command_and_args_tokenizer(cmds: list[str], args: list[dict], dualseq_schema: dict) -> tuple[list[int], torch.Tensor]:
+def _command_and_args_tokenizer(cmds: list[str], args: list[int], dualseq_schema: dict) -> tuple[list[int], list[int]]:
     command_to_id = dualseq_schema["command_to_id"]
-    arg_name_to_id = dualseq_schema["arg_name_to_id"]
-    n_args = dualseq_schema["n_args"]
-    eos_id = dualseq_schema["eos_id"]
+    cmd_eos_id = dualseq_schema["cmd_eos_id"]
+    arg_eos_id = dualseq_schema["arg_eos_id"]
 
     tokenized_cmds: list[int] = []
-    # Add +1 row for EOS token in tensor_args
-    tensor_args = torch.zeros((len(cmds) + 1, n_args), dtype=torch.float32)
-
-    for i, (cmd, cmd_args_dict) in enumerate(zip(cmds, args)):
+    
+    for cmd in cmds:
         if cmd not in command_to_id:
             raise ValueError(f"Unknown command: {cmd}")
         tokenized_cmds.append(int(command_to_id[cmd]))
 
-        for arg_name, val in cmd_args_dict.items():
-            slot = arg_name_to_id.get(arg_name)
-            if slot is not None:
-                tensor_args[i, slot] = val if val is not None else 0.0
+    tokenized_cmds.append(cmd_eos_id)
+    tokenized_args = list(args) + [arg_eos_id]
+    
+    return tokenized_cmds, tokenized_args
 
-    # Append EOS token to commands
-    tokenized_cmds.append(eos_id)
-    return tokenized_cmds, tensor_args
-
-def _collate_fn(batch: list[tuple[str, list[str], list[dict]]], 
+def _collate_fn(batch: list[tuple[str, list[str], list[int]]], 
                 description_tokenizer: PreTrainedTokenizerBase, 
                 dualseq_schema: dict) -> dict[str, torch.Tensor]:
     descriptions, cmds, args = zip(*batch)
@@ -71,27 +64,20 @@ def _collate_fn(batch: list[tuple[str, list[str], list[dict]]],
     desc_tokens = [torch.as_tensor(description_tokenizer(desc, truncation=True, max_length=max_len)['input_ids'], dtype=torch.long) for desc in descriptions]
     
     cmd_tokens_list = []
-    arg_tensors_list = []
+    arg_tokens_list = []
     for c, a in zip(cmds, args):
-        c_tok, a_ten = _command_and_args_tokenizer(c, a, dualseq_schema)
+        c_tok, a_tok = _command_and_args_tokenizer(c, a, dualseq_schema)
         cmd_tokens_list.append(torch.as_tensor(c_tok, dtype=torch.long))
-        arg_tensors_list.append(a_ten)
+        arg_tokens_list.append(torch.as_tensor(a_tok, dtype=torch.long))
 
-    # Pad sequences
-    pad_id = dualseq_schema["pad_id"]
-    sos_id = dualseq_schema["sos_id"]
+    cmd_pad_id = dualseq_schema["cmd_pad_id"]
+    arg_pad_id = dualseq_schema["arg_pad_id"]
     
     input_ids = torch.nn.utils.rnn.pad_sequence(desc_tokens, batch_first=True, padding_value=0)
     attention_mask = _make_attn_masks(input_ids)
     
-    cmd_targets = torch.nn.utils.rnn.pad_sequence(cmd_tokens_list, batch_first=True, padding_value=pad_id)
-    # Pad args with 0.0
-    n_args = dualseq_schema["n_args"]
-    max_cmd_len = cmd_targets.size(1)
-    
-    arg_targets = torch.zeros((len(batch), max_cmd_len, n_args), dtype=torch.float32)
-    for i, a_ten in enumerate(arg_tensors_list):
-        arg_targets[i, :a_ten.size(0), :] = a_ten
+    cmd_targets = torch.nn.utils.rnn.pad_sequence(cmd_tokens_list, batch_first=True, padding_value=cmd_pad_id)
+    arg_targets = torch.nn.utils.rnn.pad_sequence(arg_tokens_list, batch_first=True, padding_value=arg_pad_id)
         
     return input_ids, cmd_targets, arg_targets, attention_mask
 
