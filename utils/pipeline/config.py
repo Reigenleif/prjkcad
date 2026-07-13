@@ -77,6 +77,7 @@ class TokenizerConfig(_ConfigBase):
 class ModelConfig(_ConfigBase):
     is_pretrained: bool
     max_new_cmds: int
+    max_new_args: int = 1024
     encoder_type: str = "t5-small"
     cmd_decoder_type: str = "t5-small"
     args_decoder_type: Optional[str] = None
@@ -111,6 +112,7 @@ class TrainerConfig(_ConfigBase):
     criterion: CriterionConfig
     epochs: int
     max_new_cmds: int
+    max_new_args: int = 1024
     optimizer_kwargs: Dict[str, Any] = field(default_factory=dict)
     kwargs: Dict[str, Any] = field(default_factory=dict)
     eval_steps: int = 1000

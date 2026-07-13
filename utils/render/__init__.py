@@ -81,7 +81,7 @@ def render_dual_seq_to_img(dual_seq, img_path: str, with_str: bool = False, with
 
     # 1. Create the body
     body = None
-    for part in _parse_parts(dual_seq.cmds, dual_seq.args):
+    for part in _parse_parts(dual_seq.cmds, dual_seq.args_dict):
         ea = part["extrude_args"]
         if ea is None: continue
         ax3   = make_coord_system(part["coor"])
