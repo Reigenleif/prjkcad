@@ -85,15 +85,31 @@ def tokens_to_float(tokens: list[int], schema: dict) -> float:
         
     int_val = 0
     for t in int_tokens:
-        val = int(schema["id_to_arg"][t])
-        int_val = int_val * 1000 + val
+        try:
+            val_str = schema["id_to_arg"].get(t)
+            if val_str is None or not val_str.isdigit():
+                continue
+            val = int(val_str)
+            if int_val > 1e250:
+                break
+            int_val = int_val * 1000 + val
+        except (ValueError, KeyError, OverflowError):
+            continue
         
     frac_val = 0.0
     divisor = 1000.0
     for t in frac_tokens:
-        val = int(schema["id_to_arg"][t])
-        frac_val += val / divisor
-        divisor *= 1000.0
+        try:
+            val_str = schema["id_to_arg"].get(t)
+            if val_str is None or not val_str.isdigit():
+                continue
+            val = int(val_str)
+            if divisor > 1e250:
+                break
+            frac_val += val / divisor
+            divisor *= 1000.0
+        except (ValueError, KeyError, OverflowError):
+            continue
         
     total = int_val + frac_val
     if is_neg:
