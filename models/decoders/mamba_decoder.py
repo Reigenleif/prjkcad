@@ -17,12 +17,14 @@ except ImportError as e:
             sys.modules["selective_scan_cuda"] = types.ModuleType("selective_scan_cuda")
         from mamba_ssm import Mamba3
     else:
-        raise e
+        Mamba3 = None
 
 # Module-level components
 class MambaBlock(nn.Module):
     def __init__(self, d_model: int, d_hidden: int = 16):
         super().__init__()
+        if Mamba3 is None:
+            raise ImportError("mamba_ssm is not installed, cannot use MambaDecoder")
         self.mamba = Mamba3(d_model=d_model, d_state=d_hidden)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
