@@ -5,6 +5,7 @@ from typing import Union, Dict, Any, Optional
 import pandas as pd
 import matplotlib.pyplot as plt
 import torch
+import wandb
 from transformers import AutoTokenizer, get_cosine_schedule_with_warmup
 
 from utils.set_seed import set_seed
@@ -13,7 +14,7 @@ from utils.dual_seq import DualSeq, get_dualseq_schema
 from utils.data_utils import create_cmdonly_data_loader, create_dualseq_data_loader
 from utils.wrapper import DualSeqWrapper
 from utils.criterion import DualSeqCriterion
-from utils.trainer import DualSeqTrainer
+from utils.trainer import DualSeqTrainer, DualSeqCMDOnlyTrainer
 
 from models import BaseModel
 from utils.pipeline.config import Config
@@ -206,7 +207,6 @@ class FineTuningPipeline:
             **config.trainer.kwargs
         }
         if config.data.is_cmdonly:
-            from utils.legacy.trainer.dual_seq_cmdonly_trainer import DualSeqCMDOnlyTrainer
             trainer = DualSeqCMDOnlyTrainer(
                 wrapper,
                 criterion,
@@ -240,8 +240,27 @@ class FineTuningPipeline:
         if not self.trainer or not self.train_loader:
             self.load_things()
 
-        progression = self.trainer.train(self.cfg.trainer.epochs, verbose=verbose_all)
-        self.progression = progression
+        wandb_api_key = os.environ.get("WANDB_API_KEY")
+        wandb_project = os.environ.get("WANDB_PROJECT")
+        if wandb_api_key and wandb_project:
+            import wandb
+            wandb.login(key=wandb_api_key)
+            config_dict = self.cfg.to_dict() if hasattr(self.cfg, "to_dict") else (self.cfg.__dict__ if hasattr(self.cfg, "__dict__") else {})
+            wandb.init(
+                project=wandb_project,
+                name=self.cfg.run_name,
+                config=config_dict,
+                reinit=True
+            )
+            if self.trainer is not None:
+                wandb.watch(self.trainer.wrapper, log="gradients", log_freq=self.trainer.eval_steps)
+
+        try:
+            progression = self.trainer.train(self.cfg.trainer.epochs, verbose=verbose_all)
+            self.progression = progression
+        finally:
+            if wandb.run:
+                wandb.finish()
         
         rand_idxs = torch.randperm(len(self.dual_seqs))[:10]
         results = []

@@ -8,6 +8,7 @@ import numpy as np
 import torch
 from tqdm.auto import tqdm
 import pandas as pd
+import wandb
 
 from utils.wrapper.dual_seq_wrapper import DualSeqWrapper
 from utils.evaluate import eval_cmd_only
@@ -246,6 +247,9 @@ class DualSeqTrainer:
                 avg_loss = np.mean(train_losses)
                 global_step += 1
                 
+                if wandb.run:
+                    wandb.log({"train/loss": loss_val}, step=global_step)
+                
                 pbar.update(1)
                 pbar.set_description(f"Step {global_step}/{total_steps} | Loss: {avg_loss:.4f}")
                 
@@ -274,6 +278,14 @@ class DualSeqTrainer:
                         pbar.write(format_log_header(summary))
                     pbar.write(format_log_row(summary, history[0]))
                     
+                    if wandb.run:
+                        val_log = {k.replace("val_", "val/"): v for k, v in summary.items() if k.startswith("val_")}
+                        grad_dict = {}
+                        for name, param in self.wrapper.named_parameters():
+                            if param.grad is not None:
+                                grad_dict[f"gradients/{name}"] = param.grad.norm().item()
+                        wandb.log({**val_log, **grad_dict}, step=global_step)
+                    
                     if self.val_loader is not None and self.best_metric_key in summary:
                         current_metric_value = summary[self.best_metric_key]
                         is_best = False
@@ -288,6 +300,14 @@ class DualSeqTrainer:
                         if is_best and self.save_folder is not None:
                             best_epoch_or_step = global_step
                             self.save_on_best_epoch(self.save_folder, best_epoch_or_step, summary)
+
+                            if wandb.run:
+                                artifact = wandb.Artifact(name=f"best_model_{wandb.run.id}", type="model")
+                                for fname in ["encoder.pt", "adaptive_layer.pt", "checkpoint.pt"]:
+                                    fpath = os.path.join(self.save_folder, fname)
+                                    if os.path.exists(fpath):
+                                        artifact.add_file(fpath)
+                                wandb.log_artifact(artifact)
             
         pbar.close()
         if self.save_folder is not None:

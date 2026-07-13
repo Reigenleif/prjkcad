@@ -238,6 +238,27 @@ class PretrainPipeline:
         if not self.trainer or not self.train_loader:
             self.load_things()
 
-        progression = self.trainer.train(self.cfg.trainer.epochs, verbose=verbose_all)
-        self.progression = progression
-        return progression
+        wandb_api_key = os.environ.get("WANDB_API_KEY")
+        wandb_project = os.environ.get("WANDB_PROJECT")
+        if wandb_api_key and wandb_project:
+            import wandb
+            wandb.login(key=wandb_api_key)
+            config_dict = self.cfg.to_dict() if hasattr(self.cfg, "to_dict") else (self.cfg.__dict__ if hasattr(self.cfg, "__dict__") else {})
+            wandb.init(
+                project=wandb_project,
+                name=self.cfg.run_name,
+                config=config_dict,
+                reinit=True
+            )
+            if self.trainer is not None:
+                wandb.watch(self.trainer.wrapper, log="gradients", log_freq=self.trainer.eval_steps)
+
+        try:
+            progression = self.trainer.train(self.cfg.trainer.epochs, verbose=verbose_all)
+            self.progression = progression
+            return progression
+        finally:
+            import wandb
+            if wandb.run:
+                wandb.finish()
+
