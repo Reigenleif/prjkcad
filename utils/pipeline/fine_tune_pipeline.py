@@ -319,7 +319,7 @@ class FineTuningPipeline:
         progression = self.progression
         out_path = f"out/{config.run_name}/progression.png"
 
-        # ── Build data arrays ─────────────────────────────────────────────────
+        # Build data arrays
         vp = {
             "LINE_precision":    [h.get("val_LINE_precision",    0) for h in progression],
             "LINE_recall":       [h.get("val_LINE_recall",       0) for h in progression],
@@ -356,13 +356,15 @@ class FineTuningPipeline:
         epochs      = list(range(1, len(progression) + 1))
         avg_f1      = [(vp["LINE_f1"][i] + vp["CIRCLE_f1"][i] + vp["ARC_f1"][i]) / 3
                        for i in range(len(epochs))]
+        lr_history  = [h.get("lr", 0.0)     for h in progression]
+        grad_norm_history = [h.get("grad_norm", 0.0) for h in progression]
 
-        # ── Grid layout ───────────────────────────────────────────────────────
-        n_rows = 5 + int(is_full)
+        # Grid layout
+        n_rows = 6 + int(is_full)
         fig = plt.figure(figsize=(12, 3.0 * n_rows))
         gs  = fig.add_gridspec(n_rows, 2, hspace=0.50, wspace=0.30)
 
-        # ── Color palette ─────────────────────────────────────────────────────
+        # Color palette
         C = {
             "train":    "#4C72B0",
             "val":      "#DD8452",
@@ -380,7 +382,7 @@ class FineTuningPipeline:
         }
 
 
-        # ── Helpers ───────────────────────────────────────────────────────────
+        # Helpers
         def _style(ax, title, ylabel=None, ylim=None):
             ax.set_title(title, fontsize=11, fontweight="bold", pad=6)
             ax.set_xlabel("Epoch", fontsize=9)
@@ -405,16 +407,36 @@ class FineTuningPipeline:
                     linewidth=1.5)
             _style(ax, title, ylabel="Score", ylim=(0, 1))
 
-        # ── Row 0 – Loss (full-width) ─────────────────────────────────────────
+        # Row 0 – Loss (full-width)
         ax_loss = fig.add_subplot(gs[0, :])
         ax_loss.plot(epochs, train_loss, color=C["train"], label="Train", linewidth=1.5)
         ax_loss.plot(epochs, val_loss,   color=C["val"],   label="Val",   linewidth=1.5, linestyle="--")
         _style(ax_loss, "Loss", ylabel="Loss")
 
-        # ── Row 1 – Perplexity | Shape metrics ───────────────────────────────
+        # Row 1 – LR and Gradient Norm (full-width)
+        ax_lr = fig.add_subplot(gs[1, :])
+        ax_lr.plot(epochs, lr_history, color="#1F77B4", label="Learning Rate", linewidth=1.5)
+        ax_lr.set_title("Learning Rate & Gradient Norm", fontsize=11, fontweight="bold", pad=6)
+        ax_lr.set_xlabel("Epoch", fontsize=9)
+        ax_lr.set_ylabel("Learning Rate", fontsize=9, color="#1F77B4")
+        ax_lr.tick_params(axis="y", colors="#1F77B4", labelsize=8)
+        ax_lr.grid(True, linestyle="--", linewidth=0.5, alpha=0.45)
+        ax_lr.spines[["top", "right"]].set_visible(False)
+
+        ax_gn = ax_lr.twinx()
+        ax_gn.plot(epochs, grad_norm_history, color="#DD8452", label="Gradient Norm", linewidth=1.5, linestyle="--")
+        ax_gn.set_ylabel("Gradient Norm", fontsize=9, color="#DD8452")
+        ax_gn.tick_params(axis="y", colors="#DD8452", labelsize=8)
+        ax_gn.spines[["top"]].set_visible(False)
+        
+        lines_lr, labels_lr = ax_lr.get_legend_handles_labels()
+        lines_gn, labels_gn = ax_gn.get_legend_handles_labels()
+        ax_lr.legend(lines_lr + lines_gn, labels_lr + labels_gn, fontsize=8, framealpha=0.7, loc="best")
+
+        # Row 2 – Perplexity | Shape metrics
         if is_full:
-            ax_perp  = fig.add_subplot(gs[1, 0])
-            ax_shape = fig.add_subplot(gs[1, 1])
+            ax_perp  = fig.add_subplot(gs[2, 0])
+            ax_shape = fig.add_subplot(gs[2, 1])
             ax_perp.plot(epochs, val_perp, color=C["val"], linewidth=1.5, label="Val Perplexity")
             _style(ax_perp, "Validation Perplexity", ylabel="Perplexity")
 
@@ -450,27 +472,27 @@ class FineTuningPipeline:
                                ha="center", va="center", fontsize=9, color="gray",
                                transform=ax_shape.transAxes)
         else:
-            ax_perp = fig.add_subplot(gs[1, :])
+            ax_perp = fig.add_subplot(gs[2, :])
             ax_perp.plot(epochs, val_perp, color=C["val"], linewidth=1.5, label="Val Perplexity")
             _style(ax_perp, "Validation Perplexity", ylabel="Perplexity")
 
-        # ── Row 2 – LINE | CIRCLE ─────────────────────────────────────────────
-        _plot_prf(fig.add_subplot(gs[2, 0]), "LINE",   "LINE Metrics")
-        _plot_prf(fig.add_subplot(gs[2, 1]), "CIRCLE", "CIRCLE Metrics")
+        # Row 3 – LINE | CIRCLE
+        _plot_prf(fig.add_subplot(gs[3, 0]), "LINE",   "LINE Metrics")
+        _plot_prf(fig.add_subplot(gs[3, 1]), "CIRCLE", "CIRCLE Metrics")
 
-        # ── Row 3 – ARC | EXTRUDE ────────────────────────────────────────────
-        _plot_prf(fig.add_subplot(gs[3, 0]), "ARC",     "ARC Metrics")
-        _plot_prf(fig.add_subplot(gs[3, 1]), "EXTRUDE", "EXTRUDE Metrics\n(extrude-only filtered)")
+        # Row 4 – ARC | EXTRUDE 
+        _plot_prf(fig.add_subplot(gs[4, 0]), "ARC",     "ARC Metrics")
+        _plot_prf(fig.add_subplot(gs[4, 1]), "EXTRUDE", "EXTRUDE Metrics\n(extrude-only filtered)")
 
-        # ── Row 4 – Avg F1 (full-width) ───────────────────────────────────────
-        ax_avg = fig.add_subplot(gs[4, :])
+        # Row 5 – Avg F1 (full-width)
+        ax_avg = fig.add_subplot(gs[5, :])
         ax_avg.plot(epochs, avg_f1, color=C["avg_f1"], linewidth=2.0,
                     label="Avg F1 (LINE + CIRCLE + ARC)")
         _style(ax_avg, "Average F1 (Sketch Tokens)", ylabel="F1", ylim=(0, 1))
 
-        # ── Row 5 – Argument Metrics (full-width, cmd+args only) ──────────────
+        # Row 6 – Argument Metrics (full-width, cmd+args only) 
         if is_full:
-            ax_args = fig.add_subplot(gs[5, :])
+            ax_args = fig.add_subplot(gs[6, :])
             ax_args.plot(epochs, vp["val_arg_float_r2"], color=C["arg_r2"], label="Arg Float R²", linewidth=1.5)
             ax_args.plot(epochs, vp["val_arg_token_f1"], color=C["arg_f1"], label="Arg Token F1", linewidth=1.5)
             ax_args.set_ylabel("R² / F1", fontsize=9)

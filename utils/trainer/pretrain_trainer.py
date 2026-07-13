@@ -96,7 +96,7 @@ class PretrainTrainer:
         loss, cce_loss, kl_loss = self.criterion(logits, target_ids, mu, logvar)
         loss.backward()
 
-        torch.nn.utils.clip_grad_norm_(self.wrapper.parameters(), self.max_grad_norm)
+        grad_norm = torch.nn.utils.clip_grad_norm_(self.wrapper.parameters(), self.max_grad_norm)
         self.optimizer.step()
         if self.scheduler is not None:
             self.scheduler.step()
@@ -104,7 +104,9 @@ class PretrainTrainer:
         return {
             "loss": float(loss.detach().cpu().item()),
             "cce_loss": float(cce_loss.detach().cpu().item()),
-            "kl_loss": float(kl_loss.detach().cpu().item())
+            "kl_loss": float(kl_loss.detach().cpu().item()),
+            "grad_norm": float(grad_norm),
+            "lr": float(self.optimizer.param_groups[0]["lr"])
         }
 
     @torch.no_grad()
@@ -183,7 +185,9 @@ class PretrainTrainer:
                     summary: dict[str, float] = {
                         "epoch": round(global_step / len(self.train_loader), 2) if self.train_loader else epoch + 1,
                         "step": global_step,
-                        "train_loss": float(avg_loss)
+                        "train_loss": float(avg_loss),
+                        "lr": float(self.optimizer.param_groups[0]["lr"]),
+                        "grad_norm": float(step_metrics["grad_norm"])
                     }
                     
                     if self.val_loader is not None:

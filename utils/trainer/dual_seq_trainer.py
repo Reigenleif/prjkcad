@@ -231,12 +231,12 @@ class DualSeqTrainer:
                 if scaler is not None:
                     scaler.scale(loss).backward()
                     scaler.unscale_(self.optimizer)
-                    torch.nn.utils.clip_grad_norm_(self.wrapper.model.parameters(), self.max_grad_norm)
+                    grad_norm = torch.nn.utils.clip_grad_norm_(self.wrapper.model.parameters(), self.max_grad_norm)
                     scaler.step(self.optimizer)
                     scaler.update()
                 else:
                     loss.backward()
-                    torch.nn.utils.clip_grad_norm_(self.wrapper.model.parameters(), self.max_grad_norm)
+                    grad_norm = torch.nn.utils.clip_grad_norm_(self.wrapper.model.parameters(), self.max_grad_norm)
                     self.optimizer.step()
                     
                 if self.scheduler is not None:
@@ -247,8 +247,13 @@ class DualSeqTrainer:
                 avg_loss = np.mean(train_losses)
                 global_step += 1
                 
+                import wandb
                 if wandb.run:
-                    wandb.log({"train/loss": loss_val}, step=global_step)
+                    wandb.log({
+                        "train/loss": loss_val,
+                        "train/grad_norm": float(grad_norm),
+                        "train/lr": float(self.optimizer.param_groups[0]["lr"])
+                    }, step=global_step)
                 
                 pbar.update(1)
                 pbar.set_description(f"Step {global_step}/{total_steps} | Loss: {avg_loss:.4f}")
@@ -257,7 +262,9 @@ class DualSeqTrainer:
                     summary: dict[str, float] = {
                         "epoch": round(global_step / len(self.train_loader), 2) if self.train_loader else epoch + 1,
                         "step": global_step,
-                        "train_loss": float(avg_loss)
+                        "train_loss": float(avg_loss),
+                        "lr": float(self.optimizer.param_groups[0]["lr"]),
+                        "grad_norm": float(grad_norm)
                     }
                     if self.val_loader is not None:
                         eval_metrics = []
