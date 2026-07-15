@@ -39,7 +39,7 @@ def eval_cmd_only(pred_cmds, gt_cmds):
     return metrics
 
 
-def eval_cmd_and_args(pred_cmds, gt_cmds, pred_arg_tokens, gt_arg_tokens, schema):
+def eval_cmd_and_args(pred_cmds, gt_cmds, pred_arg_tokens, gt_arg_tokens, schema, skip_rendering=True):
     """
     Evaluates both command predictions (list of strings) and argument predictions (list of token IDs).
     """
@@ -88,7 +88,7 @@ def eval_cmd_and_args(pred_cmds, gt_cmds, pred_arg_tokens, gt_arg_tokens, schema
         gt_ds = None
 
     is_valid_render = False
-    if is_valid_dualseq and pred_ds is not None:
+    if not skip_rendering and is_valid_dualseq and pred_ds is not None:
         try:
             shape = render_dual_seq_to_shape(pred_ds.cmds, pred_ds.args_dict)
             if shape is not None:
@@ -117,8 +117,8 @@ def eval_cmd_and_args(pred_cmds, gt_cmds, pred_arg_tokens, gt_arg_tokens, schema
                         pred_floats.append(0.0)
                         
         if gt_floats:
-            pred_arr = np.array(pred_floats)
-            gt_arr = np.array(gt_floats)
+            pred_arr = np.clip(np.array(pred_floats, dtype=np.float64), -1e5, 1e5)
+            gt_arr = np.clip(np.array(gt_floats, dtype=np.float64), -1e5, 1e5)
             metrics["arg_float_mse"] = float(np.mean((pred_arr - gt_arr) ** 2))
             try:
                 metrics["arg_float_r2"] = float(r2_score(gt_arr, pred_arr))

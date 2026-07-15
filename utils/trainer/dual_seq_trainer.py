@@ -9,9 +9,10 @@ import torch
 from tqdm.auto import tqdm
 import pandas as pd
 import wandb
+import wandb
 
 from utils.wrapper.dual_seq_wrapper import DualSeqWrapper
-from utils.evaluate import eval_cmd_only
+from utils.evaluate import eval_cmd_and_args, eval_cmd_only
 
 def _move_to_device(batch: Any, device: torch.device):
     if isinstance(batch, Mapping):
@@ -67,7 +68,8 @@ class DualSeqTrainer:
         best_metric_key: str = "val_avg_f1",
         best_metric_mode: str = "max",
         eval_steps: int = 1000,
-        scheduler = None
+        scheduler = None,
+        log_artifacts: bool = False
     ):
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.wrapper = model_wrapper.to(self.device)
@@ -88,6 +90,7 @@ class DualSeqTrainer:
         self.best_metric_mode = best_metric_mode
         self.eval_steps = eval_steps
         self.scheduler = scheduler
+        self.log_artifacts = log_artifacts
 
     def _scheduled_ratio(self, epoch: int) -> float:
         if self.schedule_fn is not None:
@@ -128,7 +131,6 @@ class DualSeqTrainer:
         metrics = {"loss": float(loss.detach().cpu().item())}
         metrics["perplexity"] = float(torch.exp(loss.detach().cpu()).item())
 
-        from utils.evaluate import eval_cmd_and_args, eval_cmd_only
         
         schema = self.wrapper.schema
         id_to_cmd = schema['id_to_command']
@@ -153,7 +155,7 @@ class DualSeqTrainer:
             if is_cmdonly:
                 metric = eval_cmd_only(pred_cmds, true_cmds)
             else:
-                metric = eval_cmd_and_args(pred_cmds, true_cmds, arg_pred_list, arg_true_list, schema)
+                metric = eval_cmd_and_args(pred_cmds, true_cmds, arg_pred_list, arg_true_list, schema, skip_rendering=True)
                 correct = sum(1 for j in range(min(len(arg_pred_list), len(arg_true_list))) if arg_pred_list[j] == arg_true_list[j])
                 metric["arg_token_accuracy"] = correct / max(len(arg_true_list), 1)
                 
@@ -247,13 +249,14 @@ class DualSeqTrainer:
                 avg_loss = np.mean(train_losses)
                 global_step += 1
                 
-                import wandb
+                log_dict = {
+                    "train/loss": loss_val,
+                    "train/grad_norm": float(grad_norm),
+                    "train/lr": float(self.optimizer.param_groups[0]["lr"])
+                }
+                print(f"DEBUG: global_step={global_step}, wandb.run={wandb.run}, log_dict={log_dict}")
                 if wandb.run:
-                    wandb.log({
-                        "train/loss": loss_val,
-                        "train/grad_norm": float(grad_norm),
-                        "train/lr": float(self.optimizer.param_groups[0]["lr"])
-                    }, step=global_step)
+                    wandb.log(log_dict, step=global_step)
                 
                 pbar.update(1)
                 pbar.set_description(f"Step {global_step}/{total_steps} | Loss: {avg_loss:.4f}")
@@ -308,7 +311,7 @@ class DualSeqTrainer:
                             best_epoch_or_step = global_step
                             self.save_on_best_epoch(self.save_folder, best_epoch_or_step, summary)
 
-                            if wandb.run:
+                            if wandb.run and getattr(self, "log_artifacts", False):
                                 artifact = wandb.Artifact(name=f"best_model_{wandb.run.id}", type="model")
                                 for fname in ["encoder.pt", "adaptive_layer.pt", "checkpoint.pt"]:
                                     fpath = os.path.join(self.save_folder, fname)

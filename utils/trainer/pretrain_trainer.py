@@ -69,7 +69,8 @@ class PretrainTrainer:
         best_metric_key: str = "val_f1",
         best_metric_mode: str = "max",
         eval_steps: int = 1000,
-        scheduler = None
+        scheduler = None,
+        log_artifacts: bool = False
     ):
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.wrapper = model_wrapper.to(self.device)
@@ -83,6 +84,7 @@ class PretrainTrainer:
         self.best_metric_mode = best_metric_mode
         self.eval_steps = eval_steps
         self.scheduler = scheduler
+        self.log_artifacts = log_artifacts
 
     def train_step(self, batch: Tuple) -> dict[str, float]:
         self.wrapper.train()
@@ -175,8 +177,7 @@ class PretrainTrainer:
                 global_step += 1
                 
                 
-                if wandb.run:
-                    wandb.log({f"train/{k}": v for k, v in step_metrics.items()}, step=global_step)
+                log_dict = {f"train/{k}": v for k, v in step_metrics.items()}
                 
                 pbar.update(1)
                 pbar.set_description(f"Step {global_step}/{total_steps} | Loss: {avg_loss:.4f}")
@@ -209,13 +210,11 @@ class PretrainTrainer:
                     pbar.write(format_log_row(summary, history[0]))
                     
                     
-                    if wandb.run:
-                        val_log = {k.replace("val_", "val/"): v for k, v in summary.items() if k.startswith("val_")}
-                        grad_dict = {}
-                        for name, param in self.wrapper.named_parameters():
-                            if param.grad is not None:
-                                grad_dict[f"gradients/{name}"] = param.grad.norm().item()
-                        wandb.log({**val_log, **grad_dict}, step=global_step)
+                    val_log = {k.replace("val_", "val/"): v for k, v in summary.items() if k.startswith("val_")}
+                    log_dict.update(val_log)
+                    for name, param in self.wrapper.named_parameters():
+                        if param.grad is not None:
+                            log_dict[f"gradients/{name}"] = param.grad.norm().item()
                     
                     if self.val_loader is not None and self.best_metric_key in summary:
                         current_metric_value = summary[self.best_metric_key]
@@ -234,13 +233,16 @@ class PretrainTrainer:
                             self.save_on_best_epoch(self.save_folder, best_epoch_or_step, summary)
                             
                             
-                            if wandb.run:
+                            if wandb.run and getattr(self, "log_artifacts", False):
                                 artifact = wandb.Artifact(name=f"best_model_{wandb.run.id}", type="model")
                                 for fname in ["encoder.pt", "adaptive_layer.pt", "checkpoint.pt"]:
                                     fpath = os.path.join(self.save_folder, fname)
                                     if os.path.exists(fpath):
                                         artifact.add_file(fpath)
                                 wandb.log_artifact(artifact)
+                
+                if wandb.run:
+                    wandb.log(log_dict, step=global_step)
             
         pbar.close()
         

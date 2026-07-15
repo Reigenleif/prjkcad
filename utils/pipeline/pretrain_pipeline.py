@@ -234,7 +234,7 @@ class PretrainPipeline:
         self.train_loader = train_loader
         self.val_loader = val_loader
 
-    def train_model(self, verbose_all: bool = False, do_render: bool = False):
+    def train_model(self, verbose_all: bool = False, do_render: bool = False, log_artifacts: bool = False):
         if not self.trainer or not self.train_loader:
             self.load_things()
 
@@ -251,6 +251,7 @@ class PretrainPipeline:
                 reinit=True
             )
             if self.trainer is not None:
+                self.trainer.log_artifacts = log_artifacts
                 wandb.watch(self.trainer.wrapper, log="gradients", log_freq=self.trainer.eval_steps)
 
         try:

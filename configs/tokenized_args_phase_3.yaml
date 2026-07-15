@@ -1,4 +1,5 @@
-run_name: fine_tune
+run_name: tokenized_args_fine_tune
+type: tokenized_args
 data:
   data_folder: data/text2cad
   metadata_csv: data/text2cad/text2cad_v1.1.csv
@@ -9,7 +10,7 @@ data:
   eval_split_ratio: 0.9
   num_workers: 4
   description_level: expert
-  batch_size: 16
+  batch_size: 8
   max_samples: null
 tokenizer:
   source: huggingface
@@ -21,8 +22,7 @@ model:
   is_cmd_only: false
   args_decoder_type: sdpa
   d_model: 512
-  max_new_cmds: 128
-  max_new_args: 1400
+  max_new_cmds: 1024
   moe_conf: null
   adaptive_layer: sdpa
   cmd_embedding_type: rope_sdpa
@@ -37,12 +37,11 @@ trainer:
     weight_decay: 0.1
   criterion:
     source: local
-    cls: DualSeqCriterion
+    cls: TokenizedArgsCriterion
     kwargs:
       lambda_args: 1.0
-  epochs: 30
-  max_new_cmds: 128
-  max_new_args: 1024
+  epochs: 20
+  max_new_cmds: 1024
   eval_steps: 12500
   scheduler:
     warmup_ratio: 0.02

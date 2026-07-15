@@ -76,8 +76,8 @@ class TokenizerConfig(_ConfigBase):
 @dataclass
 class ModelConfig(_ConfigBase):
     is_pretrained: bool
-    max_new_cmds: int
-    max_new_args: int = 1024
+    max_new_cmds: Optional[int] = None
+    max_new_args: Optional[int] = None
     encoder_type: str = "t5-small"
     cmd_decoder_type: str = "t5-small"
     args_decoder_type: Optional[str] = None
@@ -111,8 +111,8 @@ class TrainerConfig(_ConfigBase):
     optimizer: str
     criterion: CriterionConfig
     epochs: int
-    max_new_cmds: int
-    max_new_args: int = 1024
+    max_new_cmds: Optional[int] = None
+    max_new_args: Optional[int] = None
     optimizer_kwargs: Dict[str, Any] = field(default_factory=dict)
     kwargs: Dict[str, Any] = field(default_factory=dict)
     eval_steps: int = 1000
@@ -120,6 +120,17 @@ class TrainerConfig(_ConfigBase):
 
 @dataclass
 class FineTuningConfig(_ConfigBase):
+    run_name: str
+    type: str
+    data: DataConfig
+    tokenizer: TokenizerConfig
+    model: ModelConfig
+    trainer: TrainerConfig
+    random_seed: int
+    pretrained_path: Optional[str] = None
+
+@dataclass
+class TokenizedArgsFineTuningConfig(_ConfigBase):
     run_name: str
     type: str
     data: DataConfig
@@ -172,18 +183,23 @@ class Config:
     GRPOKwargs = GRPOKwargsConfig
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> Union[FineTuningConfig, PretrainConfig, GRPOConfig]:
+    def from_dict(cls, d: Dict[str, Any]) -> Union[FineTuningConfig, TokenizedArgsFineTuningConfig, PretrainConfig, GRPOConfig]:
         config_type = d.get("type", "fine_tuning")
         if config_type == "pretrain":
             if "type" not in d:
                 d = dict(d)
                 d["type"] = "pretrain"
             return _from_dict_helper(PretrainConfig, d)
-        elif config_type == "fine_tuning":
+        elif config_type == "fine_tuning" or config_type == "fine_tune":
             if "type" not in d:
                 d = dict(d)
                 d["type"] = "fine_tuning"
             return _from_dict_helper(FineTuningConfig, d)
+        elif config_type == "tokenized_args":
+            if "type" not in d:
+                d = dict(d)
+                d["type"] = "tokenized_args"
+            return _from_dict_helper(TokenizedArgsFineTuningConfig, d)
         elif config_type == "grpo":
             if "type" not in d:
                 d = dict(d)

@@ -13,18 +13,17 @@ from utils.set_seed import set_seed
 from utils.data_utils import load_split_data
 from utils.dual_seq import DualSeq, get_dualseq_schema
 from utils.data_utils import create_cmdonly_data_loader, create_dualseq_data_loader
-from utils.wrapper import DualSeqWrapper
-from utils.criterion import DualSeqCriterion
+from utils.wrapper import TokenizedArgsWrapper
+from utils.criterion import TokenizedArgsCriterion
 from utils.trainer import DualSeqTrainer, DualSeqCMDOnlyTrainer
-from utils.dual_seq import DualSeq
 from utils.render import render_dual_seq_to_img
         
 
-from models import BaseModel
+from models import TokenizedArgsBaseModel
 from utils.pipeline.config import Config
 
 
-class FineTuningPipeline:
+class TokenizedArgsFineTuningPipeline:
     def __init__(self, cfg: Union[Config, Dict[str, Any], str]):
         if isinstance(cfg, str):
             from .train_model import load_config
@@ -95,7 +94,7 @@ class FineTuningPipeline:
                     train_loader = create_dualseq_data_loader(dual_seqs, text_tokenizer, description_level=config.data.description_level, batch_size=config.data.batch_size, num_workers=config.data.num_workers, val_ratio=0.0, shuffle=True)
                 val_loader = None
         
-        model_cls = BaseModel
+        model_cls = TokenizedArgsBaseModel
         schema = get_dualseq_schema()
         
         if config.data.is_cmdonly:
@@ -135,19 +134,46 @@ class FineTuningPipeline:
                 checkpoint_path = os.path.join(load_dir, "checkpoint.pt")
                 
                 if os.path.exists(encoder_path):
-                    model.encoder.load_state_dict(torch.load(encoder_path, map_location="cpu"))
+                    state_dict = torch.load(encoder_path, map_location="cpu")
+                    model_state_dict = model.encoder.state_dict()
+                    filtered = {k: v for k, v in state_dict.items() if k in model_state_dict and v.shape == model_state_dict[k].shape}
+                    model.encoder.load_state_dict(filtered, strict=False)
                     print(f"Loaded encoder from {encoder_path}")
                 if os.path.exists(adaptive_layer_path):
-                    model.adaptive_layer.load_state_dict(torch.load(adaptive_layer_path, map_location="cpu"))
+                    state_dict = torch.load(adaptive_layer_path, map_location="cpu")
+                    model_state_dict = model.adaptive_layer.state_dict()
+                    filtered = {k: v for k, v in state_dict.items() if k in model_state_dict and v.shape == model_state_dict[k].shape}
+                    model.adaptive_layer.load_state_dict(filtered, strict=False)
                     print(f"Loaded adaptive_layer from {adaptive_layer_path}")
                 
                 if load_dir == self.SAVE_ROOT and os.path.exists(checkpoint_path):
-                    model.load_state_dict(torch.load(checkpoint_path, map_location="cpu"))
-                    print(f"Loaded full model checkpoint from {checkpoint_path}")
+                    state_dict = torch.load(checkpoint_path, map_location="cpu")
+                    model_state_dict = model.state_dict()
+                    filtered = {}
+                    for k, v in state_dict.items():
+                        if k in model_state_dict:
+                            if v.shape == model_state_dict[k].shape:
+                                filtered[k] = v
+                            else:
+                                print(f"Shape mismatch for key {k}: checkpoint shape {v.shape}, model shape {model_state_dict[k].shape}. Skipping.")
+                        else:
+                            print(f"Key {k} not in model. Skipping.")
+                    model.load_state_dict(filtered, strict=False)
+                    print(f"Loaded full model checkpoint from {checkpoint_path} (filtered)")
             else:
                 state_dict = torch.load(load_dir, map_location="cpu")
-                model.load_state_dict(state_dict, strict=False)
-                print(f"Loaded model checkpoint file from {load_dir} (strict=False)")
+                model_state_dict = model.state_dict()
+                filtered = {}
+                for k, v in state_dict.items():
+                    if k in model_state_dict:
+                        if v.shape == model_state_dict[k].shape:
+                            filtered[k] = v
+                        else:
+                            print(f"Shape mismatch for key {k}: checkpoint shape {v.shape}, model shape {model_state_dict[k].shape}. Skipping.")
+                    else:
+                        print(f"Key {k} not in model. Skipping.")
+                model.load_state_dict(filtered, strict=False)
+                print(f"Loaded model checkpoint file from {load_dir} (filtered)")
         
         after_model_out = model(ex_input_ids, ex_input_mask)
         if isinstance(after_model_out, tuple):
@@ -162,14 +188,17 @@ class FineTuningPipeline:
             from utils.legacy.wrapper.dual_seq_cmdonly import DualSeqCMDOnlyWrapper
             wrapper = DualSeqCMDOnlyWrapper(model, text_tokenizer)
         else:
-            wrapper = DualSeqWrapper(model, text_tokenizer)
+            wrapper = TokenizedArgsWrapper(model, text_tokenizer)
             
         if config.trainer.criterion.source == "local":
             if config.trainer.criterion.cls == "DualSeqCMDOOnlyCriterion":
                 from utils.legacy.criterion.dual_seq_cmdonly_criterion import DualSeqCMDOnlyCriterion
                 criterion_cls = DualSeqCMDOnlyCriterion
             elif config.trainer.criterion.cls == "DualSeqCriterion":
+                from utils.criterion import DualSeqCriterion
                 criterion_cls = DualSeqCriterion
+            elif config.trainer.criterion.cls == "TokenizedArgsCriterion":
+                criterion_cls = TokenizedArgsCriterion
             else:
                 raise ValueError(f"Unsupported criterion class: {config.trainer.criterion.cls}")
         else:
@@ -247,7 +276,7 @@ class FineTuningPipeline:
         wandb_api_key = os.environ.get("WANDB_API_KEY")
         wandb_project = os.environ.get("WANDB_PROJECT")
         if wandb_api_key and wandb_project:
-            import wandb
+            
             wandb.login(key=wandb_api_key)
             config_dict = self.cfg.to_dict() if hasattr(self.cfg, "to_dict") else (self.cfg.__dict__ if hasattr(self.cfg, "__dict__") else {})
             wandb.init(
@@ -263,6 +292,9 @@ class FineTuningPipeline:
         try:
             progression = self.trainer.train(self.cfg.trainer.epochs, verbose=verbose_all)
             self.progression = progression
+        except Exception as e :
+            print(f"Err: {e}")
+        
         finally:
             if wandb.run:
                 wandb.finish()
@@ -284,17 +316,6 @@ class FineTuningPipeline:
         return progression
 
     def plot_progression(self):
-        """
-        Plot the training progression/history.
-
-        Layout (2-column grid):
-            Row 0  [full-width] : Loss (Train & Val)
-            Row 1               : Val Perplexity  |  Shape metrics (IR / CD) [if not cmd-only]
-            Row 2               : LINE P/R/F1     |  CIRCLE P/R/F1
-            Row 3               : ARC P/R/F1      |  EXTRUDE P/R/F1 (extrude-filtered)
-            Row 4  [full-width] : Average F1 (sketch tokens)
-            Row 5  [full-width] : Arg Regression R² / MAPE  (cmd+args only)
-        """
         if not self.progression:
             raise ValueError("No training progression found. Please train the model first.")
 
@@ -302,7 +323,6 @@ class FineTuningPipeline:
         progression = self.progression
         out_path = f"out/{config.run_name}/progression.png"
 
-        # Build data arrays
         vp = {
             "LINE_precision":    [h.get("val_LINE_precision",    0) for h in progression],
             "LINE_recall":       [h.get("val_LINE_recall",       0) for h in progression],
@@ -332,7 +352,6 @@ class FineTuningPipeline:
             has_cd = any(v is not None for v in vp["val_cd"])
             has_shape_metrics = has_ir or has_cd
 
-
         train_loss  = [h["train_loss"]      for h in progression]
         val_loss    = [h["val_loss"]        for h in progression]
         val_perp    = [h["val_perplexity"]  for h in progression]
@@ -342,30 +361,26 @@ class FineTuningPipeline:
         lr_history  = [h.get("lr", 0.0)     for h in progression]
         grad_norm_history = [h.get("grad_norm", 0.0) for h in progression]
 
-        # Grid layout
         n_rows = 6 + int(is_full)
         fig = plt.figure(figsize=(12, 3.0 * n_rows))
         gs  = fig.add_gridspec(n_rows, 2, hspace=0.50, wspace=0.30)
 
-        # Color palette
         C = {
             "train":    "#4C72B0",
             "val":      "#DD8452",
-            "prec":     "#1F77B4",   # blue   – Precision
-            "rec":      "#FF7F0E",   # orange – Recall
-            "f1":       "#2CA02C",   # green  – F1
-            "avg_f1":   "#C44E52",   # red    – Avg F1
-            "ir":       "#9467BD",   # purple – Invalidity Rate
-            "cd":       "#8C564B",   # brown  – Chamfer Distance
+            "prec":     "#1F77B4",
+            "rec":      "#FF7F0E",
+            "f1":       "#2CA02C",
+            "avg_f1":   "#C44E52",
+            "ir":       "#9467BD",
+            "cd":       "#8C564B",
             "arg_r2":   "#937860",
             "arg_mape": "#DA8BC3",
-            "arg_f1":   "#17BECF",   # cyan
-            "arg_mse":  "#BCBD22",   # olive
-            "arg_sep":  "#E377C2",   # pink
+            "arg_f1":   "#17BECF",
+            "arg_mse":  "#BCBD22",
+            "arg_sep":  "#E377C2",
         }
 
-
-        # Helpers
         def _style(ax, title, ylabel=None, ylim=None):
             ax.set_title(title, fontsize=11, fontweight="bold", pad=6)
             ax.set_xlabel("Epoch", fontsize=9)
@@ -381,7 +396,6 @@ class FineTuningPipeline:
                 leg.get_frame().set_linewidth(0.5)
 
         def _plot_prf(ax, key, title):
-            """Plot Precision (dashed), Recall (dotted), F1 (solid) for `key`."""
             ax.plot(epochs, vp[f"{key}_precision"], color=C["prec"], label="Precision",
                     linewidth=1.2, linestyle="--")
             ax.plot(epochs, vp[f"{key}_recall"],    color=C["rec"],  label="Recall",
@@ -499,16 +513,12 @@ class FineTuningPipeline:
             lines2, labels2 = ax_sec.get_legend_handles_labels()
             ax_args.legend(lines1 + lines2, labels1 + labels2, fontsize=8, framealpha=0.7, loc="best")
 
-
         fig.suptitle(f"Training Progression: {config.run_name}", fontsize=13, fontweight="bold")
         if out_path is not None:
             fig.savefig(out_path, bbox_inches="tight", dpi=120)
         plt.close(fig)
 
     def render_val_set(self, num_samples: int = 10, save_dir: str = None):
-        """
-        Evaluate and render validation set samples autoregressively.
-        """
         if not self.wrapper:
             self.load_things()
             
@@ -530,7 +540,6 @@ class FineTuningPipeline:
         for idx, dual_seq in enumerate(tqdm(val_seqs[:num_samples], desc="Rendering Validation Set")):
             desc = dual_seq.descriptions[self.cfg.data.description_level]
             
-            # Autoregressive generation
             try:
                 pred_seq = self.wrapper.generate(desc, max_new_tokens=self.wrapper.max_new_cmds)
             except Exception as e:
@@ -549,4 +558,3 @@ class FineTuningPipeline:
                 render_dual_seq_to_img(gen_dual_seq, img_path, with_str=True, with_desc=self.cfg.data.description_level)
             except Exception as e:
                 print(f"Error rendering sample {idx}: {e}")
-

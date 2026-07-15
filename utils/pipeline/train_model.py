@@ -6,6 +6,7 @@ import pandas as pd
 
 from utils.pipeline.config import Config
 from utils.pipeline.fine_tune_pipeline import FineTuningPipeline
+from utils.pipeline.tokenized_args_fine_tune_pipeline import TokenizedArgsFineTuningPipeline
 from utils.pipeline.pretrain_pipeline import PretrainPipeline
 
 
@@ -50,7 +51,7 @@ class TrainModelPipeline:
     """
     Router Class.
     
-    Instantiates FineTuningPipeline, PretrainPipeline or GRPOPipeline based on config type.
+    Instantiates FineTuningPipeline, TokenizedArgsFineTuningPipeline, PretrainPipeline or GRPOPipeline based on config type.
     """
     def __new__(cls, cfg: Union[Config, Dict[str, Any], str]):
         if isinstance(cfg, str):
@@ -63,5 +64,7 @@ class TrainModelPipeline:
             return PretrainPipeline(cfg)
         elif cfg_type == "grpo":
             return GRPOPipeline(cfg)
+        elif cfg_type == "tokenized_args":
+            return TokenizedArgsFineTuningPipeline(cfg)
         else:
             return FineTuningPipeline(cfg)
