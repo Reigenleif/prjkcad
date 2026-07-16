@@ -141,6 +141,17 @@ class TokenizedArgsFineTuningConfig(_ConfigBase):
     pretrained_path: Optional[str] = None
 
 @dataclass
+class Text2CADConfig(_ConfigBase):
+    run_name: str
+    type: str
+    data: DataConfig
+    tokenizer: TokenizerConfig
+    model: ModelConfig
+    trainer: TrainerConfig
+    random_seed: int
+    pretrained_path: Optional[str] = None
+
+@dataclass
 class PretrainConfig(_ConfigBase):
     run_name: str
     type: str
@@ -183,7 +194,7 @@ class Config:
     GRPOKwargs = GRPOKwargsConfig
 
     @classmethod
-    def from_dict(cls, d: Dict[str, Any]) -> Union[FineTuningConfig, TokenizedArgsFineTuningConfig, PretrainConfig, GRPOConfig]:
+    def from_dict(cls, d: Dict[str, Any]) -> Union[FineTuningConfig, TokenizedArgsFineTuningConfig, PretrainConfig, GRPOConfig, "Text2CADConfig"]:
         config_type = d.get("type", "fine_tuning")
         if config_type == "pretrain":
             if "type" not in d:
@@ -200,6 +211,11 @@ class Config:
                 d = dict(d)
                 d["type"] = "tokenized_args"
             return _from_dict_helper(TokenizedArgsFineTuningConfig, d)
+        elif config_type == "text2cad":
+            if "type" not in d:
+                d = dict(d)
+                d["type"] = "text2cad"
+            return _from_dict_helper(Text2CADConfig, d)
         elif config_type == "grpo":
             if "type" not in d:
                 d = dict(d)

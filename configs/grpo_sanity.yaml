@@ -1,0 +1,57 @@
+run_name: grpo_sanity
+type: grpo
+data:
+  data_folder: data/text2cad
+  metadata_csv: data/text2cad/text2cad_v1.1.csv
+  split_json: data/text2cad/train_test_val.json
+  source_data_type: text2cad
+  is_cmdonly: false
+  sample_ratio: 1.0
+  eval_split_ratio: 0.2
+  num_workers: 0
+  description_level: expert
+  batch_size: 8
+  max_samples: 100
+tokenizer:
+  source: huggingface
+  model_name: bert-base-uncased
+model:
+  is_pretrained: true
+  encoder_type: bert
+  cmd_decoder_type: torch
+  is_cmd_only: false
+  args_decoder_type: sdpa
+  d_model: 512
+  max_new_cmds: 128
+  moe_conf: null
+  adaptive_layer: sdpa
+  cmd_embedding_type: rope_sdpa
+  args_embedding_type: rope_sdpa
+  use_drop_out: false
+  drop_out_p: 0.0
+  freeze_encoder: true
+trainer:
+  optimizer: AdamW
+  optimizer_kwargs:
+    lr: 5.0e-06
+    weight_decay: 0.01
+  criterion:
+    source: local
+    cls: TokenizedArgsCriterion
+    kwargs:
+      lambda_args: 1.0
+  epochs: 10
+  max_new_cmds: 128
+  eval_steps: 1250
+  scheduler: null
+  kwargs:
+    max_grad_norm: 1.0
+grpo:
+  n_rollouts: 2
+  clip_eps: 0.2
+  min_cd: 1.0e-5
+  max_cd: 0.5
+  eval_fraction: 1.0
+  temperature: 1.0
+pretrained_path: out/tokenized_args_fine_tune
+random_seed: 42

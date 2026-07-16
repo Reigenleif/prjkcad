@@ -254,7 +254,7 @@ class DualSeqTrainer:
                     "train/grad_norm": float(grad_norm),
                     "train/lr": float(self.optimizer.param_groups[0]["lr"])
                 }
-                print(f"DEBUG: global_step={global_step}, wandb.run={wandb.run}, log_dict={log_dict}")
+                
                 if wandb.run:
                     wandb.log(log_dict, step=global_step)
                 
