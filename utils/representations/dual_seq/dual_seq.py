@@ -1,11 +1,19 @@
+from __future__ import annotations
+
 import json
+import os
+import pickle
 import tempfile
-from tqdm import tqdm
-import pandas as pd
 from typing import Optional
 
+import numpy as np
+import pandas as pd
+from tqdm import tqdm
+
 from .schema import get_dualseq_schema, DEFAULT_COMMANDS
-from utils.representations.legacy_dual_seq.geom_utils import *
+from .geom_utils import R_to_euler, line_3d_to_line_2d, circle_3d_to_circle_2d, arc_3d_to_arc_2d
+from .metadata import DualSeqMetadata
+from utils.refs.CADSeqProc.json2stl_skt3d import process_one
 
 def encode_int_part(val_str: str, schema: dict) -> list[int]:
     if val_str == "0" or val_str == "":
@@ -110,11 +118,6 @@ def tokens_to_float(tokens: list[int], schema: dict) -> float:
             divisor *= 1000.0
         except (ValueError, KeyError, OverflowError):
             continue
-        
-    total = int_val + frac_val
-    if is_neg:
-        total = -total
-    return total
 
 class DualSeq:
     EXTRUSION_OPERATORS = {"NewBodyFeatureOperation", 
@@ -137,17 +140,16 @@ class DualSeq:
         self.uid = uid
         self.json_object = json_object
         self.cmds: list[str] = []
-        self.args: list[int] = [] 
-        self.args_dict: list[dict] = [] # Legacy preservation for str output and debug
+        self.args: list[dict] = [] 
         self.extrusion_kinds: set[str] = set()
         self.descriptions = descriptions or {}
         
         if cmd_args_tuples is not None:
             self.cmds = [c for c, _ in cmd_args_tuples]
-            self.args_dict = [a for _, a in cmd_args_tuples]
+            self.args = [a for _, a in cmd_args_tuples]
         elif cmds is not None and args is not None:
             self.cmds = cmds
-            self.args_dict = args
+            self.args = args
         elif json_object is not None:
             if format == "text2cad":
                 self.init_text2cad(json_object, uid, descriptions)
@@ -155,42 +157,17 @@ class DualSeq:
                 self.init_text2caddeepcad(json_object, uid, descriptions)
             else:
                 raise ValueError(f"Unsupported format: {format}")
-        else:
-            pass # Empty initialization
-            
-        self.build_args_tokens()
-
-    def build_args_tokens(self):
-        """Converts self.args_dict into a flat list of token IDs in self.args"""
-        all_tokens = []
-        for i, cmd in enumerate(self.cmds):
-            cmd_arg_names = DEFAULT_COMMANDS.get(cmd, [])
-            if not cmd_arg_names:
-                continue
-                
-            arg_dict = self.args_dict[i]
-            if not arg_dict:
-                continue
-            
-            # Follow the schema order
-            for j, arg_name in enumerate(cmd_arg_names):
-                val = arg_dict.get(arg_name, 0.0)
-                all_tokens.extend(float_to_tokens(val, self.schema))
-                # Add SEP after every argument
-                all_tokens.append(self.schema["arg_sep_id"])
-                
-        self.args = all_tokens
 
     def init_text2cad(self, 
-                      json_object: dict, 
-                      uid: str,
-                      descriptions: dict[str, str] | None):
+                       json_object: dict, 
+                       uid: str,
+                       descriptions: dict[str, str] | None):
         for part_name, part in json_object["parts"].items():
             coordinate_system = part["coordinate_system"]
             euler_angles = coordinate_system["Euler Angles"]
             translation_vector = coordinate_system["Translation Vector"]
             self.cmds.append("COOR")
-            self.args_dict.append({"coor_euax": euler_angles[0], 
+            self.args.append({"coor_euax": euler_angles[0], 
                               "coor_euay": euler_angles[1], 
                               "coor_euaz": euler_angles[2], 
                               "coor_tx": translation_vector[0], 
@@ -199,16 +176,16 @@ class DualSeq:
         
             for face_name, face in part["sketch"].items():
                 self.cmds.append("FACE")
-                self.args_dict.append({})
+                self.args.append({})
                 more_cmds, more_args = self.face_to_cmd(face)
                 self.cmds.extend(more_cmds)
-                self.args_dict.extend(more_args)
+                self.args.extend(more_args)
                 
             extrusion = part["extrusion"]
             self.extrusion_kinds.add(extrusion["operation"])
             more_cmds, more_args = self.extrusion_to_cmd(extrusion)
             self.cmds.extend(more_cmds)
-            self.args_dict.extend(more_args)
+            self.args.extend(more_args)
 
     def face_to_cmd(self, face: dict) -> tuple[list[str], list[dict]]:
         cmds: list[str] = []
@@ -236,8 +213,8 @@ class DualSeq:
                     end_point = segment["End Point"]
                     cmds.append("ARC")
                     args.append({"arc_sx": start_point[0], "arc_sy": start_point[1], 
-                                "arc_mx": mid_point[0], "arc_my": mid_point[1],
-                                "arc_ex": end_point[0], "arc_ey": end_point[1]})
+                                 "arc_mx": mid_point[0], "arc_my": mid_point[1],
+                                 "arc_ex": end_point[0], "arc_ey": end_point[1]})
                 else:
                     raise ValueError(f"Unsupported segment type: {segment_name}")
                 
@@ -293,7 +270,7 @@ class DualSeq:
             new_cmds, new_args = self.process_extrusion(json_object, seq)
             
             self.cmds.extend(new_cmds)
-            self.args_dict.extend(new_args)
+            self.args.extend(new_args)
     
     def process_extrusion(self, json_object: dict, seq: dict) -> tuple[list[str], list[dict]]:
         cmds = []
@@ -459,8 +436,7 @@ class DualSeq:
         return dual_seqs
 
     def __str__(self) -> str:
-        # Display legacy args dict alongside cmds
-        rows = [("cmd", "args"), *[(str(command), str(arg)) for command, arg in zip(self.cmds, self.args_dict)]]
+        rows = [("cmd", "args"), *[(str(command), str(arg)) for command, arg in zip(self.cmds, self.args)]]
         col1_w = max(len(row[0]) for row in rows)
         col2_w = max(len(row[1]) for row in rows)
         lines = [f"{rows[0][0].ljust(col1_w)} | {rows[0][1].ljust(col2_w)}", f"{'-' * col1_w}-+-{'-' * col2_w}"]
@@ -471,7 +447,7 @@ class DualSeq:
         return len(self.cmds)
 
     def render_stl(self, img_path: str) -> None:
-        from utils.refs.CADSeqProc.json2stl_skt3d import process_one
+        
         with tempfile.NamedTemporaryFile(mode="w+", suffix=".json", delete=False) as tmp_file:
             json.dump(self.json_object, tmp_file)
             tmp_path = tmp_file.name
@@ -482,8 +458,12 @@ class DualSeq:
 
     @property
     def part_count(self) -> int:
-        return len(self.json_object["parts"])
+        return len(self.json_object["parts"]) if self.json_object else 0
     
+    @property
+    def args_dict(self) -> list[dict]:
+        return self.args
+
     @staticmethod
     def id_to_cmds(id_seq: list[int]) -> list[str]:
         id_to_command = get_dualseq_schema()["id_to_command"]
@@ -495,7 +475,6 @@ class DualSeq:
         schema = get_dualseq_schema()
         sep_id = schema["arg_sep_id"]
         
-        # Split tokens by SEP
         arg_groups = []
         current_group = []
         for t in args_tokens:
@@ -526,8 +505,9 @@ class DualSeq:
         instance.schema = schema
         instance.uid = uid
         instance.cmds = list(cmds)
-        instance.args = list(args_tokens)
-        instance.args_dict = decoded_args_dict
+        instance.args = decoded_args_dict
         instance.descriptions = {}
-        instance.json_object = {"parts": {}} # Mocked for visualization
+        instance.json_object = {"parts": {}} 
         return instance
+
+
