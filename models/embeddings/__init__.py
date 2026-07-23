@@ -11,6 +11,8 @@ from .args_embedding import (
     CADArgsRoPEEmbedding,
     CADArgsSDPAEmbedding,
     CADArgsRoPESDPAEmbedding,
+    BinarizedArgsEmbedding,
+    BinarizedArgsSideEmbedding,
     build_args_embedding,
 )
 
@@ -25,6 +27,8 @@ __all__ = [
     "CADArgsRoPEEmbedding",
     "CADArgsSDPAEmbedding",
     "CADArgsRoPESDPAEmbedding",
+    "BinarizedArgsEmbedding",
+    "BinarizedArgsSideEmbedding",
     # Shared helpers
     "RotaryPositionalEncoding",
     # Factories

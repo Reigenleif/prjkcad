@@ -132,8 +132,12 @@ class SDPATransformerDecoder(nn.Module):
 
         tgt_key_padding_mask = None
         if input_ids is not None:
+            input_ids_trim = input_ids[:, :seq_len]
             pad_id = getattr(self.side_embedding, "pad_id", 0)
-            tgt_key_padding_mask = (input_ids == pad_id).unsqueeze(1).unsqueeze(2)
+            if input_ids_trim.dim() == 3:
+                tgt_key_padding_mask = (input_ids_trim == pad_id).all(dim=-1).unsqueeze(1).unsqueeze(2)
+            else:
+                tgt_key_padding_mask = (input_ids_trim == pad_id).unsqueeze(1).unsqueeze(2)
 
         memory_key_padding_mask = None
         if encoder_attention_mask is not None:
