@@ -1,6 +1,7 @@
 data/
 cad_data/
 temp/
+agents/
 .env
 **__pycache__/
 *.pyc
