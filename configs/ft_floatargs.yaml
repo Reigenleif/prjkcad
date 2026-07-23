@@ -1,53 +1,54 @@
-run_name: pruning
+run_name: fine_tune
 data:
   data_folder: data/text2cad
   metadata_csv: data/text2cad/text2cad_v1.1.csv
   split_json: data/text2cad/train_test_val.json
   source_data_type: text2cad
   is_cmdonly: false
-  sample_ratio: 0.01
-  eval_split_ratio: 0.2
+  sample_ratio: 1
+  eval_split_ratio: 0.9
   num_workers: 4
   description_level: expert
   batch_size: 16
-  max_samples: 100000
+  max_samples: null
 tokenizer:
   source: huggingface
   model_name: bert-base-uncased
 model:
-  is_pretrained: false
+  is_pretrained: true
   encoder_type: bert
-  cmd_decoder_type: torch
+  cmd_decoder_type: sdpa
   is_cmd_only: false
   args_decoder_type: sdpa
   d_model: 512
   max_new_cmds: 128
+  max_new_args: 1400
   moe_conf: null
   adaptive_layer: sdpa
   cmd_embedding_type: rope_sdpa
   args_embedding_type: rope_sdpa
   use_drop_out: true
-  drop_out_p: 0.3
+  drop_out_p: 0.0
   freeze_encoder: true
 trainer:
   optimizer: AdamW
   optimizer_kwargs:
     lr: 1.0e-04
-    weight_decay: 0.01
+    weight_decay: 0.1
   criterion:
     source: local
     cls: DualSeqCriterion
     kwargs:
-      lambda_after_pad: 3
-      lambda_overgen: 3
-  epochs: 100
+      lambda_args: 1.0
+  epochs: 30
   max_new_cmds: 128
-  eval_steps: 1000
+  max_new_args: 1024
+  eval_steps: 12500
   scheduler:
-    warmup_ratio: 0.05
+    warmup_ratio: 0.02
   kwargs:
     teacher_forcing_ratio: 1.0
     max_grad_norm: 1.0
     quant_type: fp16
-pretrained_path: null 
+pretrained_path: null
 random_seed: 42

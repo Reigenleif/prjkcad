@@ -17,7 +17,7 @@ tokenizer:
 model:
   is_pretrained: false
   encoder_type: bert
-  cmd_decoder_type: torch
+  cmd_decoder_type: sdpa
   is_cmd_only: false
   args_decoder_type: sdpa
   d_model: 512

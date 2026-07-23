@@ -1,14 +1,14 @@
-run_name: grpo
+run_name: grpo-0721
 type: grpo
 data:
   data_folder: data/text2cad
-  metadata_csv: data/text2cad/text2cad_v1.1.csv
-  split_json: data/text2cad/train_test_val.json
+  metadata_csv: /home/alief/prjkcad/data/text2cad/subsets/text2cad_multiloop_1_2part.csv
+  split_json: null
   source_data_type: text2cad
   is_cmdonly: false
   sample_ratio: 1.0
   eval_split_ratio: 0.1
-  num_workers: 4
+  num_workers: 0
   description_level: expert
   batch_size: 4
   max_samples: null
@@ -18,11 +18,12 @@ tokenizer:
 model:
   is_pretrained: true
   encoder_type: bert
-  cmd_decoder_type: torch
+  cmd_decoder_type: sdpa
   is_cmd_only: false
+  out_type: EightBitBinarizedArgs
   args_decoder_type: sdpa
   d_model: 512
-  max_new_cmds: 1024
+  max_new_cmds: 128
   moe_conf: null
   adaptive_layer: sdpa
   cmd_embedding_type: rope_sdpa
@@ -40,15 +41,15 @@ trainer:
     cls: TokenizedArgsCriterion
     kwargs:
       lambda_args: 1.0
-  epochs: 10
-  max_new_cmds: 1024
-  eval_steps: 1000
-  scheduler:
-    warmup_ratio: 0.05
+  epochs: 1
+  max_new_cmds: 128
+  eval_steps: 2000
+  scheduler: null
   kwargs:
     max_grad_norm: 1.0
+    device: cuda
 grpo:
-  n_rollouts: 8
+  n_rollouts: 2
   clip_eps: 0.2
   min_cd: 1.0e-5
   max_cd: 0.5
