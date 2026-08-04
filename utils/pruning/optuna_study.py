@@ -22,7 +22,7 @@ except ImportError:
 
 # Search spaces
 _ENCODERS       = ["t5-small", "bert"]
-_DECODERS       = ["torch", "sdpa", "t5-small", "mamba"]
+_DECODERS       = ["sdpa", "t5-small", "mamba"]
 _MOE_CONFS      = ["Switch", "Mixtral", None]
 _ADAPTIVE_TYPES = ["none", "linear", "ffn_head", "sdpa"]
 _EMBED_TYPES    = ["standard", "rope", "sdpa", "rope_sdpa"]

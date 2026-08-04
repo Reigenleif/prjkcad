@@ -3,7 +3,7 @@ from utils.pipeline.config import ModelConfig
 
 # Available decoders for pruning search
 VALID_ENCODERS = {"t5-small", "bert"}
-VALID_DECODERS = {"torch", "sdpa", "t5-small", "mamba"}
+VALID_DECODERS = {"sdpa", "t5-small", "mamba"}
 VALID_MOE_CONFS = {"Switch", "Mixtral"}
 VALID_ADAPTIVE_LAYER_TYPES = {"none", "linear", "ffn_head", "sdpa"}
 VALID_EMBEDDING_TYPES = {"standard", "rope", "sdpa", "rope_sdpa"}
