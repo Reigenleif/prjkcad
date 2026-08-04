@@ -13,7 +13,10 @@ from tqdm import tqdm
 from .schema import get_dualseq_schema, DEFAULT_COMMANDS
 from .geom_utils import R_to_euler, line_3d_to_line_2d, circle_3d_to_circle_2d, arc_3d_to_arc_2d
 from .metadata import DualSeqMetadata
-from utils.refs.CADSeqProc.json2stl_skt3d import process_one
+try:
+    from utils.refs.CADSeqProc.json2stl_skt3d import process_one
+except ImportError:
+    process_one = None
 
 def encode_int_part(val_str: str, schema: dict) -> list[int]:
     if val_str == "0" or val_str == "":
@@ -447,7 +450,9 @@ class DualSeq:
         return len(self.cmds)
 
     def render_stl(self, img_path: str) -> None:
-        
+        if process_one is None:
+            print("CADSeqProc process_one is not available. Cannot render STL.")
+            return
         with tempfile.NamedTemporaryFile(mode="w+", suffix=".json", delete=False) as tmp_file:
             json.dump(self.json_object, tmp_file)
             tmp_path = tmp_file.name

@@ -86,6 +86,7 @@ def build_dualseq_schema() -> dict[str, object]:
         # Legacy mappings (useful for reference or decoding back to dicts)
         "arg_names": arg_names, 
         "command_to_slice": command_to_slice,
+        "arg_name_to_id": {name: idx for idx, name in enumerate(arg_names)},
         
         # Backwards compatibility names
         "pad_id": cmd_pad_id,
