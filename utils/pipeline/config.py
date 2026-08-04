@@ -67,6 +67,7 @@ class DataConfig(_ConfigBase):
     split_json: Optional[str] = None
     sample_ratio: Optional[float] = None
     max_samples: Optional[int] = None
+    out_type: Optional[str] = None
 
 @dataclass
 class TokenizerConfig(_ConfigBase):
@@ -93,6 +94,11 @@ class ModelConfig(_ConfigBase):
     args_embedding_type: str = "standard"
     use_drop_out: bool = True
     drop_out_p: float = 0.1
+    use_cmd_args_fusion: bool = False
+    cmd_n_layers: Optional[int] = None
+    args_n_layers: Optional[int] = None
+    n_dec_blocks: Optional[int] = 6
+    out_type: Optional[str] = None
     kwargs: Dict[str, Any] = field(default_factory=dict)
 
 @dataclass
@@ -103,8 +109,10 @@ class CriterionConfig(_ConfigBase):
 
 @dataclass
 class SchedulerConfig(_ConfigBase):
+    type: str = "cosine"
     warmup_steps: int = 0
     warmup_ratio: Optional[float] = None
+    eta_min: float = 0.0
 
 @dataclass
 class TrainerConfig(_ConfigBase):
@@ -184,7 +192,7 @@ class GRPOConfig(_ConfigBase):
     pretrained_path: Optional[str] = None
 
 class Config:
-    # Namespace mappings for backwards compatibility and referencing nested classes
+    # Namespace mappings
     Data = DataConfig
     Tokenizer = TokenizerConfig
     Model = ModelConfig
