@@ -1,0 +1,59 @@
+run_name: ft_eightbitbin_fuse
+type: fine_tune
+data:
+  data_folder: data/text2cad
+  metadata_csv: data/text2cad/text2cad_v1.1.csv
+  split_json: data/text2cad/train_test_val.json
+  source_data_type: text2cad
+  is_cmdonly: false
+  sample_ratio: 1
+  eval_split_ratio: 0.9
+  num_workers: 4
+  description_level: expert
+  batch_size: 16
+  max_samples: null
+tokenizer:
+  source: huggingface
+  model_name: bert-base-uncased
+model:
+  is_pretrained: true
+  encoder_type: bert
+  cmd_decoder_type: sdpa
+  is_cmd_only: false
+  args_decoder_type: sdpa
+  d_model: 512
+  max_new_cmds: 128
+  moe_conf: null
+  adaptive_layer: sdpa
+  cmd_embedding_type: rope_sdpa
+  args_embedding_type: rope_sdpa
+  use_drop_out: true
+  drop_out_p: 0.1
+  freeze_encoder: true
+  out_type: EightBitBinarizedArgs
+  use_cmd_args_fusion: true
+  n_dec_blocks: 6
+trainer:
+  optimizer: AdamW
+  optimizer_kwargs:
+    lr: 1.0e-04
+    weight_decay: 0.1
+  criterion:
+    source: local
+    cls: EightBitBinarizedArgsCriterion
+    kwargs:
+      lambda_args: 1.0
+      label_smoothing: 0.1
+      eos_weight: 10.0
+      lambda_structural: 0.1
+  epochs: 30
+  max_new_cmds: 128
+  eval_steps: 12000
+  scheduler:
+    warmup_ratio: 0.01
+  kwargs:
+    teacher_forcing_ratio: 1.0
+    max_grad_norm: 1.0
+    quant_type: fp16
+pretrained_path: out/grpo/checkpoint.pt
+random_seed: 42
