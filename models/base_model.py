@@ -9,7 +9,7 @@ from .encoders import PretrainedT5Encoder, PretrainedBERTEncoder
 from .decoders import PretrainedT5Decoder, SDPATransformerDecoder, MambaTransformerDecoder
 from .heads import CMDHead, ArgsHead
 from .adaptive_layer import AdaptiveLayer
-from .common import CmdArgsFusion
+from .common import CmdArgsFusion, FusionStack
 from utils.representations.dual_seq.schema import get_dualseq_schema
 
 
@@ -56,8 +56,10 @@ class BaseModel(nn.Module):
         self.max_new_args = cfg.max_new_args or cfg.max_new_cmds
 
         self.use_cmd_args_fusion = getattr(cfg, "use_cmd_args_fusion", False)
+        self.n_dec_blocks = getattr(cfg, "n_dec_blocks", 6)
         if self.use_cmd_args_fusion:
-            self.cmd_args_fusion = CmdArgsFusion(self.d_model)
+            dropout = cfg.drop_out_p if cfg.use_drop_out else 0.1
+            self.fusion_stack = FusionStack(d_model=self.d_model, n_dec_blocks=self.n_dec_blocks, dropout=dropout)
 
         self._init_encoder()
         self._init_cmd_decoder()
@@ -249,12 +251,16 @@ class BaseModel(nn.Module):
         if self.use_cmd_args_fusion and decoder_input_args is not None:
             cmd_embeds = self.cmd_embedding(decoder_input_ids)
             arg_embeds = self.arg_embedding(decoder_input_args)
-            fused_embeds = self.cmd_args_fusion(cmd_embeds, arg_embeds)
-            T = fused_embeds.size(1)
-            cmd_input_trim = decoder_input_ids[:, :T]
-            arg_input_trim = decoder_input_args[:, :T]
-            cmd_hidden = self._forward_cmd_decoder(cmd_input_trim, encoder_hidden_states, attention_mask, inputs_embeds=fused_embeds)
-            arg_hidden = self._forward_args_decoder(arg_input_trim, encoder_hidden_states, attention_mask, inputs_embeds=fused_embeds)
+            cmd_hidden, arg_hidden = self.fusion_stack(
+                cmd_embeds,
+                arg_embeds,
+                encoder_hidden_states,
+                attention_mask,
+                cmd_input_ids=decoder_input_ids,
+                arg_input_args=decoder_input_args,
+                cmd_pad_id=self.pad_id,
+                arg_pad_id=self.arg_pad_id,
+            )
         else:
             cmd_hidden = self._forward_cmd_decoder(decoder_input_ids, encoder_hidden_states, attention_mask)
             if not self.cfg.is_cmd_only and decoder_input_args is None:
