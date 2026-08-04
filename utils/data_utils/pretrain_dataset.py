@@ -46,7 +46,15 @@ def _pretrain_collate_fn(batch: List[Tuple[str, str]],
     target_ids = torch.nn.utils.rnn.pad_sequence(y_tokens, batch_first=True, padding_value=pad_id)
     attention_mask = (input_ids != pad_id).long()
 
-    return input_ids, attention_mask, target_ids
+    return {
+        "x": input_ids,
+        "attn_mask": attention_mask,
+        "input_ids": input_ids,
+        "attention_mask": attention_mask,
+        "target_ids": target_ids,
+        "y": target_ids,
+        "descriptions": list(X_list),
+    }
 
 
 def create_pretrain_data_loader(dual_seqs: List[DualSeq], 

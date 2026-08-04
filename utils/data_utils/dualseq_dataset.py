@@ -115,7 +115,17 @@ def _collate_fn(batch, description_tokenizer: PreTrainedTokenizerBase, dualseq_s
         arg_tokens_list = [torch.as_tensor(a + [dualseq_schema["arg_eos_id"]], dtype=torch.long) for a in args]
         arg_targets = torch.nn.utils.rnn.pad_sequence(arg_tokens_list, batch_first=True, padding_value=dualseq_schema["arg_pad_id"])
         
-    return input_ids, cmd_targets, arg_targets, attention_mask
+    return {
+        "x": input_ids,
+        "attn_mask": attention_mask,
+        "input_ids": input_ids,
+        "attention_mask": attention_mask,
+        "cmd_targets": cmd_targets,
+        "arg_targets": arg_targets,
+        "y": {"cmd_targets": cmd_targets, "arg_targets": arg_targets},
+        "descriptions": list(descriptions),
+        "cmds": list(cmds),
+    }
 
 def create_dualseq_data_loader(dual_seqs: list[DualSeq], 
                                description_tokenizer: PreTrainedTokenizerBase, 
