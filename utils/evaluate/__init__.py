@@ -4,22 +4,22 @@ from .cmd_evaluation_functions import token_precision_from_cmd_list, token_recal
 from .args_evaluation_functions import arg_r2_score, arg_mape
 from .shape_evaluation_functions import invalidity_rate_from_shapes, chamfer_distance_from_shapes, chamfer_distance
 from .reconstruction_evaluation import eval_reconstruction
+from .text2cad_evaluator import evaluate_text2cad_style
 from utils.dual_seq import DualSeq, get_dualseq_schema
 from utils.representations.dual_seq.dual_seq import DEFAULT_COMMANDS, tokens_to_float
 from utils.render import render_dual_seq_to_shape
 
 
 def eval_cmd_only(pred_cmds, gt_cmds):
-    assert len(pred_cmds) == len(gt_cmds), "Length of predicted commands and ground truth commands must be the same."
-    
     observe_tokens = ["LINE", "CIRCLE", "ARC"]
     
     # Remove trailing PAD tokens for fair evaluation
     pad_token = "PAD"
     pred_cmds = list(pred_cmds)
     gt_cmds = list(gt_cmds)
-    while pred_cmds and pred_cmds[-1] == pad_token and gt_cmds and gt_cmds[-1] == pad_token:
+    while pred_cmds and pred_cmds[-1] == pad_token:
         pred_cmds.pop()
+    while gt_cmds and gt_cmds[-1] == pad_token:
         gt_cmds.pop()
         
     metrics = {}
