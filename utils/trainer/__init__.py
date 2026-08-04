@@ -1,10 +1,11 @@
-from .dual_seq_cmdonly_trainer import DualSeqCMDOnlyTrainer
-from .dual_seq_trainer import DualSeqTrainer
-from .pretrain_trainer import PretrainTrainer
+from utils.trainer.base_trainer import BaseTrainer
+from utils.trainer.gd_trainer import GDTrainer
+from utils.trainer.grpo_trainer import GRPOTrainer
+from utils.trainer.custom_trainer import CustomTrainer
 
 __all__ = [
-    "DualSeqTrainer",
-    "DualSeqCMDOnlyTrainer",
-    "PretrainTrainer",
-    "GRPOTrainer"
+    "BaseTrainer",
+    "GDTrainer",
+    "GRPOTrainer",
+    "CustomTrainer",
 ]
