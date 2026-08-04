@@ -1,8 +1,7 @@
-"""utils/render/__init__.py: DualSeq → isometric PNG."""
 from .coord_system    import make_coord_system
 from .sketch2d        import build_face_from_loops
 from .extrude         import extrude_part
-from .render_img      import render_to_image, render_with_text_side_by_side
+from .render_img      import render_to_image, render_with_text_side_by_side, format_dual_seq_representations, render_debug_instance_image
 from .point_sampling  import sample_shape
 from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Fuse, BRepAlgoAPI_Cut, BRepAlgoAPI_Common
 
@@ -133,3 +132,21 @@ def render_dual_seq_to_img(dual_seq, img_path: str, with_str: bool = False, with
             render_to_image(body, img_path)
     else :
         raise ValueError("No body was created from the DualSeq, check the validity of it")
+
+def render_dual_seq_with_representations_to_img(dual_seq, img_path: str, metadata=None) -> None:
+    import tempfile
+    import os
+    body = render_dual_seq_to_shape(dual_seq.cmds, dual_seq.args)
+    if body is None:
+        raise ValueError("Failed to create OCC shape from DualSeq.")
+        
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+        tmp_path = tmp.name
+        
+    try:
+        render_to_image(body, tmp_path)
+        text = format_dual_seq_representations(dual_seq, metadata)
+        render_with_text_side_by_side(text, tmp_path, img_path)
+    finally:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
