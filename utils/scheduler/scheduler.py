@@ -16,9 +16,13 @@ class CustomScheduler(LambdaLR):
             warmup_steps = int(config.warmup_ratio * total_steps)
         self.warmup_steps = warmup_steps
 
-        scheduler_type = config.type.lower()
-        if scheduler_type not in ("cosine", "linear"):
-            raise ValueError(f"Unsupported scheduler type: {scheduler_type}")
+        raw_type = config.type.lower()
+        if raw_type in ("cosine", "cosine_with_warmup"):
+            scheduler_type = "cosine"
+        elif raw_type in ("linear", "linear_with_warmup"):
+            scheduler_type = "linear"
+        else:
+            raise ValueError(f"Unsupported scheduler type: {config.type}")
 
         eta_min = getattr(config, "eta_min", 0.0)
 
