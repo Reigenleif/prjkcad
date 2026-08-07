@@ -37,6 +37,6 @@ class CustomCriterion(BaseCriterion):
         # <-- Fallback Default -->
         return FloatArgsCriterion(**merged_kwargs)
 
-    def forward(self, outputs: Dict[str, Any], batch: Dict[str, Any]) -> torch.Tensor:
+    def forward(self, *args, **kwargs) -> torch.Tensor:
         # <-- Forward Pass to Instantiated Criterion Variant -->
-        return self.criterion(outputs, batch)
+        return self.criterion(*args, **kwargs)

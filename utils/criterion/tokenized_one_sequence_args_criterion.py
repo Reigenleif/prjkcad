@@ -26,15 +26,23 @@ class TokenizedOneSequenceArgsCriterion(BaseCriterion):
         batch: Union[Dict[str, Any], torch.Tensor] = None,
         *args
     ) -> torch.Tensor:
-        # <-- Input Unpacking Guard -->
-        if isinstance(outputs, dict) and isinstance(batch, dict):
+        if isinstance(outputs, dict):
             cmd_logits = outputs["cmd_logits"]
             arg_logits = outputs["arg_logits"]
-            cmd_targets = batch.get("cmd_targets", batch.get("y", {}).get("cmd_targets"))
-            arg_targets = batch.get("arg_targets", batch.get("y", {}).get("arg_targets"))
+        elif isinstance(outputs, (tuple, list)):
+            cmd_logits = outputs[0]
+            arg_logits = outputs[1]
         else:
             cmd_logits = outputs
             arg_logits = batch
+
+        if isinstance(batch, (tuple, list)):
+            cmd_targets = batch[1]
+            arg_targets = batch[2]
+        elif isinstance(batch, dict):
+            cmd_targets = batch.get("cmd_targets", batch.get("y", {}).get("cmd_targets"))
+            arg_targets = batch.get("arg_targets", batch.get("y", {}).get("arg_targets"))
+        else:
             cmd_targets = args[0] if args else None
             arg_targets = args[1] if len(args) > 1 else None
 

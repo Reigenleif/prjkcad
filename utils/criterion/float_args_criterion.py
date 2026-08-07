@@ -25,15 +25,22 @@ class FloatArgsCriterion(BaseCriterion):
         cmd_targets: torch.Tensor = None,
         arg_targets: torch.Tensor = None
     ) -> torch.Tensor:
-        # <-- Argument Extraction -->
-        if isinstance(outputs, dict) and isinstance(batch, dict):
+        if isinstance(outputs, dict):
             cmd_logits = outputs["cmd_logits"]
-            arg_preds = outputs["arg_preds"]
-            cmd_targets = batch.get("cmd_targets", batch.get("y", {}).get("cmd_targets"))
-            arg_targets = batch.get("arg_targets", batch.get("y", {}).get("arg_targets"))
-        elif not isinstance(outputs, dict):
+            arg_preds = outputs.get("arg_preds", outputs.get("arg_logits"))
+        elif isinstance(outputs, (tuple, list)):
+            cmd_logits = outputs[0]
+            arg_preds = outputs[1]
+        else:
             cmd_logits = outputs
             arg_preds = batch
+
+        if isinstance(batch, (tuple, list)):
+            cmd_targets = batch[1]
+            arg_targets = batch[2]
+        elif isinstance(batch, dict):
+            cmd_targets = batch.get("cmd_targets", batch.get("y", {}).get("cmd_targets"))
+            arg_targets = batch.get("arg_targets", batch.get("y", {}).get("arg_targets"))
 
         # <-- Command Loss Calculation -->
         B, T_cmd_pred, V_cmd = cmd_logits.shape

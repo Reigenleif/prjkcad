@@ -51,22 +51,26 @@ class EightBitBinarizedArgsCriterion(BaseCriterion):
         batch: Union[Dict[str, Any], torch.Tensor] = None,
         *args
     ) -> torch.Tensor:
-        # <-- Input Parsing Guard Clause -->
-        if isinstance(outputs, dict) and isinstance(batch, dict):
+        if isinstance(outputs, dict):
             cmd_logits = outputs["cmd_logits"]
             arg_logits = outputs["arg_logits"]
-            cmd_targets = batch.get("cmd_targets", batch.get("y", {}).get("cmd_targets"))
-            arg_targets = batch.get("arg_targets", batch.get("y", {}).get("arg_targets"))
+        elif isinstance(outputs, (tuple, list)):
+            cmd_logits = outputs[0]
+            arg_logits = outputs[1]
         else:
             cmd_logits = outputs
             arg_logits = batch
-            cmd_targets = args[2] if len(args) > 2 else args[0]
-            arg_targets = args[3] if len(args) > 3 else args[1]
 
-        # <-- Buffer Device Alignment Guard -->
-        if hasattr(self, "cmd_class_weights") and self.cmd_class_weights.device != cmd_logits.device:
-            self.cmd_class_weights = self.cmd_class_weights.to(cmd_logits.device)
-            self.cmd_loss_fn.weight = self.cmd_class_weights
+        if isinstance(batch, (tuple, list)):
+            cmd_targets = batch[1]
+            arg_targets = batch[2]
+        elif isinstance(batch, dict):
+            cmd_targets = batch.get("cmd_targets", batch.get("y", {}).get("cmd_targets"))
+            arg_targets = batch.get("arg_targets", batch.get("y", {}).get("arg_targets"))
+        else:
+            cmd_targets = args[0] if len(args) > 0 else None
+            arg_targets = args[1] if len(args) > 1 else None
+
 
         # <-- Command Loss Calculation -->
         B, T_cmd_pred, V_cmd = cmd_logits.shape
