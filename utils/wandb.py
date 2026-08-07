@@ -2,19 +2,34 @@ import os
 import torch
 import wandb
 
-def init_wandb(run_name: str, config_dict: dict, wrapper: torch.nn.Module = None, eval_steps: int = 1000):
+def init_wandb(run_name: str, config_dict: dict = None, wrapper: torch.nn.Module = None, eval_steps: int = 1000, project_name: str = None):
     wandb_api_key = os.environ.get("WANDB_API_KEY")
-    wandb_project = os.environ.get("WANDB_PROJECT")
-    if wandb_api_key and wandb_project:
-        wandb.login(key=wandb_api_key)
-        wandb.init(
-            project=wandb_project,
-            name=run_name,
-            config=config_dict,
-            reinit=True
-        )
-        if wrapper is not None:
+    if wandb_api_key:
+        try:
+            wandb.login(key=wandb_api_key)
+        except Exception:
+            pass
+
+    cfg_proj = config_dict.get("wandb_project") if isinstance(config_dict, dict) else None
+    wandb_project = os.environ.get("WANDB_PROJECT") or project_name or cfg_proj or "prjkcad"
+
+    if wandb.run is None:
+        try:
+            wandb.init(
+                project=wandb_project,
+                name=run_name,
+                config=config_dict,
+                reinit=True
+            )
+            print(f"Initialized WandB run '{run_name}' in project '{wandb_project}'")
+        except Exception as e:
+            print(f"Warning: wandb.init failed: {e}")
+
+    if wandb.run is not None and wrapper is not None:
+        try:
             wandb.watch(wrapper, log="gradients", log_freq=eval_steps)
+        except Exception:
+            pass
 
 def log_wandb_train(log_dict: dict, step: int):
     if wandb.run:
