@@ -4,7 +4,7 @@ from .cmd_evaluation_functions import token_precision_from_cmd_list, token_recal
 from .args_evaluation_functions import arg_r2_score, arg_mape
 from .shape_evaluation_functions import invalidity_rate_from_shapes, chamfer_distance_from_shapes, chamfer_distance
 from .reconstruction_evaluation import eval_reconstruction
-from .text2cad_evaluator import evaluate_text2cad_style
+# from .text2cad_evaluator import evaluate_text2cad_style
 from utils.dual_seq import DualSeq, get_dualseq_schema
 from utils.representations.dual_seq.dual_seq import DEFAULT_COMMANDS, tokens_to_float
 from utils.render import render_dual_seq_to_shape
@@ -133,3 +133,112 @@ def eval_cmd_and_args(pred_cmds, gt_cmds, pred_arg_tokens, gt_arg_tokens, schema
         metrics["arg_float_r2"] = 0.0
         
     return metrics
+
+
+def eval_float_args(pred_cmds, gt_cmds, pred_args, gt_args):
+    metrics = eval_cmd_only(pred_cmds, gt_cmds)
+    pred_flat = []
+    gt_flat = []
+    for p_seq, g_seq in zip(pred_args, gt_args):
+        if isinstance(p_seq, (list, tuple, np.ndarray)):
+            pred_flat.extend(p_seq)
+        else:
+            pred_flat.append(p_seq)
+        if isinstance(g_seq, (list, tuple, np.ndarray)):
+            gt_flat.extend(g_seq)
+        else:
+            gt_flat.append(g_seq)
+    if gt_flat:
+        p_arr = np.clip(np.array(pred_flat, dtype=np.float64), -1e5, 1e5)
+        g_arr = np.clip(np.array(gt_flat, dtype=np.float64), -1e5, 1e5)
+        metrics["arg_float_mse"] = float(np.mean((p_arr - g_arr) ** 2))
+        try:
+            metrics["arg_float_r2"] = float(r2_score(g_arr, p_arr))
+        except Exception:
+            metrics["arg_float_r2"] = 0.0
+    else:
+        metrics["arg_float_mse"] = 0.0
+        metrics["arg_float_r2"] = 1.0
+    return metrics
+
+
+def eval_batch(pred_cmd_tokens, gt_cmd_tokens, pred_args, gt_args, out_type="FloatArgs", schema=None, metadata=None):
+    schema = schema or get_dualseq_schema()
+    id_to_cmd = schema["id_to_command"]
+
+    if hasattr(pred_cmd_tokens, "cpu"):
+        pred_cmd_tokens = pred_cmd_tokens.cpu().numpy().tolist()
+    if hasattr(gt_cmd_tokens, "cpu"):
+        gt_cmd_tokens = gt_cmd_tokens.cpu().numpy().tolist()
+    if hasattr(pred_args, "cpu"):
+        pred_args = pred_args.cpu().numpy().tolist()
+    if hasattr(gt_args, "cpu"):
+        gt_args = gt_args.cpu().numpy().tolist()
+
+    B = len(gt_cmd_tokens)
+    sample_metrics_list = []
+
+    for i in range(B):
+        true_cmds = [id_to_cmd.get(tok, 'PAD') if isinstance(tok, (int, np.integer)) else str(tok) for tok in gt_cmd_tokens[i]]
+        pred_cmds = [id_to_cmd.get(tok, 'PAD') if isinstance(tok, (int, np.integer)) else str(tok) for tok in pred_cmd_tokens[i]]
+
+        try: true_cmds = true_cmds[:true_cmds.index("EOS")]
+        except ValueError: pass
+        try: pred_cmds = pred_cmds[:pred_cmds.index("EOS")]
+        except ValueError: pass
+
+        if out_type in ["FloatArgs", "float_args"]:
+            p_a = pred_args[i] if i < len(pred_args) else []
+            g_a = gt_args[i]
+            m = eval_float_args(pred_cmds, true_cmds, p_a, g_a)
+        elif out_type in ["EightBitBinarizedArgs", "eight_bit"]:
+            m = eval_cmd_only(pred_cmds, true_cmds)
+            p_a = pred_args[i] if i < len(pred_args) else []
+            g_a = gt_args[i]
+            correct = 0
+            total = 0
+            pred_floats = []
+            true_floats = []
+            arg_names = schema["arg_names"]
+            for step_idx in range(min(len(p_a), len(g_a))):
+                for arg_idx, arg_name in enumerate(arg_names):
+                    p_bin = p_a[step_idx][arg_idx] if arg_idx < len(p_a[step_idx]) else 256
+                    t_bin = g_a[step_idx][arg_idx] if arg_idx < len(g_a[step_idx]) else 256
+                    if t_bin != 256:
+                        total += 1
+                        if p_bin == t_bin:
+                            correct += 1
+                        if metadata is not None:
+                            pred_floats.append(metadata.bin_to_float(arg_name, p_bin))
+                            true_floats.append(metadata.bin_to_float(arg_name, t_bin))
+            m["arg_token_accuracy"] = correct / max(total, 1)
+            if true_floats:
+                p_arr = np.clip(np.array(pred_floats, dtype=np.float64), -1e5, 1e5)
+                t_arr = np.clip(np.array(true_floats, dtype=np.float64), -1e5, 1e5)
+                m["arg_float_mse"] = float(np.mean((p_arr - t_arr) ** 2))
+                try:
+                    m["arg_float_r2"] = float(r2_score(t_arr, p_arr))
+                except Exception:
+                    m["arg_float_r2"] = 0.0
+            else:
+                m["arg_float_mse"] = 0.0
+                m["arg_float_r2"] = 1.0
+        elif out_type in ["TokenizedOneSequenceArgs", "tokenized"]:
+            p_a = pred_args[i] if i < len(pred_args) else []
+            g_a = gt_args[i]
+            m = eval_cmd_and_args(pred_cmds, true_cmds, p_a, g_a, schema, skip_rendering=True)
+            correct = sum(1 for j in range(min(len(p_a), len(g_a))) if p_a[j] == g_a[j])
+            m["arg_token_accuracy"] = correct / max(len(g_a), 1)
+        else:
+            m = eval_cmd_only(pred_cmds, true_cmds)
+
+        sample_metrics_list.append(m)
+
+    avg_metrics = {}
+    if sample_metrics_list:
+        all_keys = set(k for sm in sample_metrics_list for k in sm.keys())
+        for key in all_keys:
+            vals = [sm[key] for sm in sample_metrics_list if sm.get(key) is not None]
+            if vals:
+                avg_metrics[key] = float(np.mean(vals))
+    return avg_metrics
