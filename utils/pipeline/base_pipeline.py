@@ -11,7 +11,8 @@ from utils.data_utils import load_split_data
 from utils.wrapper.custom_wrapper import CustomWrapper
 from utils.criterion.custom_criterion import CustomCriterion
 from utils.trainer.custom_trainer import CustomTrainer
-from utils.representations.dual_seq.dual_seq import DualSeqMetadata
+from utils.representations.dual_seq.dual_seq import DualSeqMetadata, DualSeq
+from utils.wandb import init_wandb
 
 class BasePipeline:
     """Base class for training & evaluation pipelines."""
@@ -71,3 +72,86 @@ class BasePipeline:
                 self.metadata = DualSeqMetadata()
                 self.metadata.fit(self.dual_seqs)
                 self.metadata.save(metadata_path)
+
+    def load_weights(self, path: Optional[str] = None) -> bool:
+        # <-- Automatic Checkpoint Weight Loading -->
+        if path is None:
+            candidates = [
+                os.path.join(self.SAVE_ROOT, "checkpoint.ckpt"),
+                os.path.join(self.SAVE_ROOT, "checkpoint.pt"),
+            ]
+            if hasattr(self.cfg, "pretrained_path") and self.cfg.pretrained_path:
+                p = str(self.cfg.pretrained_path)
+                candidates.extend([
+                    p,
+                    os.path.join(p, "checkpoint.ckpt"),
+                    os.path.join(p, "checkpoint.pt"),
+                    os.path.join("out", p),
+                    os.path.join("out", p, "checkpoint.ckpt"),
+                    os.path.join("out", p, "checkpoint.pt"),
+                ])
+            for cand in candidates:
+                if cand and os.path.isfile(cand):
+                    path = cand
+                    break
+
+        if not path or not os.path.isfile(path):
+            return False
+
+        checkpoint = torch.load(path, map_location="cpu", weights_only=False)
+
+        if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
+            state_dict = checkpoint["state_dict"]
+        elif isinstance(checkpoint, dict):
+            state_dict = checkpoint
+        else:
+            state_dict = checkpoint
+
+        clean_state_dict = {}
+        for k, v in state_dict.items():
+            new_key = k
+            for prefix in ["lightning_module.", "wrapper.wrapper.model.", "wrapper.model.", "model."]:
+                if new_key.startswith(prefix):
+                    new_key = new_key[len(prefix):]
+            clean_state_dict[new_key] = v
+
+        if hasattr(self, "model") and self.model is not None:
+            self.model.load_state_dict(clean_state_dict, strict=False)
+            print(f"Loaded checkpoint weights from: {path}")
+            return True
+        return False
+
+    def load(self) -> None:
+        self.load_tokenizer()
+        self.load_dataset()
+        self.load_loaders()
+        self.load_model_and_wrapper()
+        self.load_criterion()
+        self.load_trainer()
+
+    def run(self) -> None:
+        if self.trainer is None:
+            self.load()
+        eval_steps = getattr(getattr(self.cfg, "trainer", None), "eval_steps", 1000)
+        if getattr(self.cfg, "use_wandb", True):
+            init_wandb(
+                run_name=self.cfg.run_name,
+                config_dict=self.cfg.to_dict(),
+                wrapper=self.wrapper,
+                eval_steps=eval_steps
+            )
+        self.trainer.fit(self.train_loader, self.val_loader)
+
+    def infer(self, input_text: str, max_new_tokens: int = 50) -> DualSeq:
+        # <-- Text-to-CAD DualSeq Inference -->
+        if self.wrapper is None:
+            if hasattr(self, "load"):
+                self.load()
+            elif hasattr(self, "load_tokenizer") and hasattr(self, "load_model_and_wrapper"):
+                self.load_tokenizer()
+                self.load_model_and_wrapper()
+        if self.wrapper is None:
+            raise RuntimeError("Model wrapper was not initialized for inference.")
+        return self.wrapper.infer(input_text, max_new_tokens=max_new_tokens)
+
+

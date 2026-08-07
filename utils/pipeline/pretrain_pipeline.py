@@ -14,6 +14,7 @@ from utils.dual_seq import get_dualseq_schema
 from utils.wrapper.custom_wrapper import CustomWrapper
 from utils.criterion.custom_criterion import CustomCriterion
 from utils.trainer.custom_trainer import CustomTrainer
+from utils.scheduler.scheduler import CustomScheduler
 
 class PretrainPipeline(BasePipeline):
     """Pipeline for Autoencoder Pretraining execution."""
@@ -63,7 +64,9 @@ class PretrainPipeline(BasePipeline):
         schema = get_dualseq_schema()
         model_kwargs = {"vocab_size": len(self.text_tokenizer), "vocab_size_args": schema["args_n_tokens"], "cfg": self.cfg.model, **self.cfg.model.kwargs}
         self.model = BaseModel(**model_kwargs)
+        self.load_weights()
         self.wrapper = CustomWrapper(self.model, self.text_tokenizer, out_type="pretrain")
+
 
     def load_criterion(self) -> None:
         # <-- CustomCriterion Setup -->
@@ -72,21 +75,37 @@ class PretrainPipeline(BasePipeline):
     def load_trainer(self) -> None:
         # <-- CustomTrainer Setup -->
         optimizer = torch.optim.AdamW(self.wrapper.parameters(), **self.cfg.trainer.optimizer_kwargs)
+        
+        scheduler = None
+        if hasattr(self.cfg.trainer, "scheduler") and self.cfg.trainer.scheduler is not None and self.train_loader is not None:
+            total_steps = len(self.train_loader) * self.cfg.trainer.epochs
+            scheduler = CustomScheduler(optimizer, self.cfg.trainer.scheduler, total_steps=total_steps)
+
         self.trainer = CustomTrainer(
             trainer_cfg=self.cfg.trainer,
             wrapper=self.wrapper,
             criterion=self.criterion,
             optimizer=optimizer,
+            scheduler=scheduler,
             save_folder=self.SAVE_ROOT,
-            trainer_type="gd"
+            trainer_type="gd",
+            run_name=getattr(self.cfg, "run_name", None)
         )
 
-    def run(self) -> None:
-        # <-- Pipeline Execution -->
+    def load(self) -> None:
         self.load_tokenizer()
         self.load_dataset()
         self.load_loaders()
         self.load_model_and_wrapper()
         self.load_criterion()
         self.load_trainer()
+
+    def run(self) -> None:
+        if self.trainer is None:
+            self.load()
         self.trainer.fit(self.train_loader, self.val_loader)
+
+    def infer(self, input_text: str, max_new_tokens: int = 50) -> Any:
+        # <-- Pretrain Pipeline Guard Clause -->
+        raise NotImplementedError("PretrainPipeline does not support DualSeq CAD inference.")
+

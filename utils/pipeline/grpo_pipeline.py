@@ -48,7 +48,9 @@ class GRPOPipeline(BasePipeline):
         schema = get_dualseq_schema()
         model_kwargs = {"vocab_size": schema["cmd_n_tokens"], "vocab_size_args": schema["args_n_tokens"], "cfg": self.cfg.model, **self.cfg.model.kwargs}
         self.model = BaseModel(**model_kwargs)
+        self.load_weights()
         self.wrapper = CustomWrapper(self.model, self.text_tokenizer, out_type="grpo", metadata=self.metadata)
+
 
     def load_criterion(self) -> None:
         # <-- CustomCriterion Setup -->
@@ -68,15 +70,19 @@ class GRPOPipeline(BasePipeline):
             optimizer=optimizer,
             save_folder=self.SAVE_ROOT,
             trainer_type="grpo",
+            run_name=getattr(self.cfg, "run_name", None),
             **grpo_kwargs
         )
 
-    def run(self) -> None:
-        # <-- Complete Pipeline Runner -->
+    def load(self) -> None:
         self.load_tokenizer()
         self.load_dataset()
         self.load_loaders()
         self.load_model_and_wrapper()
         self.load_criterion()
         self.load_trainer()
+
+    def run(self) -> None:
+        if self.trainer is None:
+            self.load()
         self.trainer.fit(self.train_loader, self.val_loader)

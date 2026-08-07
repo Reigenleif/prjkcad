@@ -13,6 +13,7 @@ from utils.dual_seq import get_dualseq_schema
 from utils.wrapper.custom_wrapper import CustomWrapper
 from utils.criterion.custom_criterion import CustomCriterion
 from utils.trainer.custom_trainer import CustomTrainer
+from utils.scheduler.scheduler import CustomScheduler
 
 class FineTunePipeline(BasePipeline):
     """Pipeline for Supervised Fine-Tuning execution."""
@@ -46,7 +47,9 @@ class FineTunePipeline(BasePipeline):
         schema = get_dualseq_schema()
         model_kwargs = {"vocab_size": schema["cmd_n_tokens"], "vocab_size_args": schema["args_n_tokens"], "cfg": self.cfg.model, **self.cfg.model.kwargs}
         self.model = BaseModel(**model_kwargs)
+        self.load_weights()
         self.wrapper = CustomWrapper(self.model, self.text_tokenizer, out_type=self.out_type, metadata=self.metadata)
+
 
     def load_criterion(self) -> None:
         # <-- CustomCriterion Instantiation -->
@@ -55,21 +58,57 @@ class FineTunePipeline(BasePipeline):
     def load_trainer(self) -> None:
         # <-- CustomTrainer Instantiation -->
         optimizer = torch.optim.AdamW(self.wrapper.parameters(), **self.cfg.trainer.optimizer_kwargs)
+        
+        scheduler = None
+        if hasattr(self.cfg.trainer, "scheduler") and self.cfg.trainer.scheduler is not None and self.train_loader is not None:
+            total_steps = len(self.train_loader) * self.cfg.trainer.epochs
+            scheduler = CustomScheduler(optimizer, self.cfg.trainer.scheduler, total_steps=total_steps)
+
+        eval_steps = getattr(self.cfg.trainer, "eval_steps", 1000)
+        t_kwargs = getattr(self.cfg.trainer, "kwargs", {}) or {}
+        max_grad_norm = t_kwargs.get("max_grad_norm", getattr(self.cfg.trainer, "max_grad_norm", 1.0))
+        quant_type = t_kwargs.get("quant_type", getattr(self.cfg.trainer, "quant_type", None))
+
         self.trainer = CustomTrainer(
             trainer_cfg=self.cfg.trainer,
+            use_wandb=getattr(self.cfg, "use_wandb", True),
             wrapper=self.wrapper,
             criterion=self.criterion,
             optimizer=optimizer,
+            scheduler=scheduler,
+            train_loader=self.train_loader,
+            val_loader=self.val_loader,
             save_folder=self.SAVE_ROOT,
-            trainer_type="gd"
+            trainer_type="gd",
+            epochs=self.cfg.trainer.epochs,
+            eval_steps=eval_steps,
+            max_grad_norm=max_grad_norm,
+            quant_type=quant_type,
+            run_name=getattr(self.cfg, "run_name", None),
+            out_type=self.out_type,
+            metadata=self.metadata
         )
 
-    def run(self) -> None:
-        # <-- Complete Pipeline Runner -->
+    def load(self) :
         self.load_tokenizer()
         self.load_dataset()
         self.load_loaders()
         self.load_model_and_wrapper()
         self.load_criterion()
         self.load_trainer()
+
+
+    def run(self) -> None:
+        if self.trainer is None:
+            self.load()
         self.trainer.fit(self.train_loader, self.val_loader)
+
+    def eval(self, val_loader: Optional[Any] = None) -> Any:
+        # <-- Complete Pipeline Evaluator -->
+        if self.trainer is None:
+            self.load()
+        loader = val_loader if val_loader is not None else self.val_loader
+        if loader is None:
+            raise ValueError("No validation loader available for evaluation.")
+        return self.trainer.eval(loader)
+

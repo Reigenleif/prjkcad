@@ -136,6 +136,7 @@ class FineTuningConfig(_ConfigBase):
     trainer: TrainerConfig
     random_seed: int
     pretrained_path: Optional[str] = None
+    use_wandb: bool = True
 
 @dataclass
 class TokenizedArgsFineTuningConfig(_ConfigBase):
@@ -147,6 +148,7 @@ class TokenizedArgsFineTuningConfig(_ConfigBase):
     trainer: TrainerConfig
     random_seed: int
     pretrained_path: Optional[str] = None
+    use_wandb: bool = True
 
 @dataclass
 class Text2CADConfig(_ConfigBase):
@@ -158,6 +160,7 @@ class Text2CADConfig(_ConfigBase):
     trainer: TrainerConfig
     random_seed: int
     pretrained_path: Optional[str] = None
+    use_wandb: bool = True
 
 @dataclass
 class PretrainConfig(_ConfigBase):
@@ -169,6 +172,7 @@ class PretrainConfig(_ConfigBase):
     trainer: TrainerConfig
     random_seed: int
     pretrained_path: Optional[str] = None
+    use_wandb: bool = True
 
 @dataclass
 class GRPOKwargsConfig(_ConfigBase):
@@ -190,6 +194,7 @@ class GRPOConfig(_ConfigBase):
     grpo: GRPOKwargsConfig
     random_seed: int
     pretrained_path: Optional[str] = None
+    use_wandb: bool = True
 
 class Config:
     # Namespace mappings

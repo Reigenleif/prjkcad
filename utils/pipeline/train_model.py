@@ -33,7 +33,7 @@ def merge_best_epochs(out_dir: str = "out", output_path: str = "out/best_merged.
     print(f"Merged {len(frames)} experiment(s) -> {output_path}")
     return merged
 
-class TrainModelPipeline:
+class CustomPipeline:
     """Factory router instantiating the matching pipeline based on config type."""
 
     def __new__(cls, cfg: Union[Config, Dict[str, Any], str]):
