@@ -103,3 +103,29 @@ class TokenizedOneSequenceArgsWrapper(BaseWrapper):
             "arg_logits": torch.cat(arg_outs, dim=1) if arg_outs else torch.empty(0, device=device),
             "arg_preds": torch.cat(arg_pred_outs, dim=1) if arg_pred_outs else torch.empty(0, device=device, dtype=torch.long),
         }
+
+    @torch.no_grad()
+    def generate(self, input_text: str, max_new_tokens: int = 50) -> DualSeq:
+        # <-- Evaluation Mode & Tokenization -->
+        self.model.eval()
+        input_ids, attention_mask = self.tokenize_input(input_text)
+        out_dict = self.forward({"input_ids": input_ids, "attention_mask": attention_mask}, is_teacher_forcing=False)
+        cmd_tokens = out_dict["cmd_preds"][0].cpu().numpy().tolist() if "cmd_preds" in out_dict else []
+
+        id_to_command = {v: k for k, v in self.schema["command_to_id"].items()}
+        eos_id = self.schema["cmd_eos_id"]
+        cmds, args = [], []
+        for cmd_id in cmd_tokens:
+            if cmd_id == eos_id:
+                break
+            cmd_str = id_to_command.get(cmd_id)
+            if not cmd_str or cmd_str in ("SOS", "EOS", "PAD"):
+                continue
+            cmds.append(cmd_str)
+            args.append({})
+        return DualSeq(cmds=cmds, args=args)
+
+    def infer(self, input_text: str, max_new_tokens: int = 50) -> DualSeq:
+        # <-- DualSeq Output Generation -->
+        return self.generate(input_text, max_new_tokens=max_new_tokens)
+

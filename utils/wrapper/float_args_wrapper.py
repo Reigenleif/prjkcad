@@ -7,6 +7,7 @@ from transformers import AutoTokenizer
 if TYPE_CHECKING:
     from models.base_model import BaseModel
 from utils.wrapper.base_wrapper import BaseWrapper
+from utils.dual_seq import DualSeq
 
 class FloatArgsWrapper(BaseWrapper):
     """Wrapper for FloatArgs continuous argument predictions."""
@@ -156,3 +157,9 @@ class FloatArgsWrapper(BaseWrapper):
             generated_sequence.append((command_name, arg_dict))
 
         return generated_sequence
+
+    def infer(self, input_text: str, max_new_tokens: int = 50) -> DualSeq:
+        # <-- DualSeq Output Generation -->
+        cmd_args_tuples = self.generate(input_text, max_new_tokens=max_new_tokens)
+        return DualSeq(cmd_args_tuples=cmd_args_tuples)
+

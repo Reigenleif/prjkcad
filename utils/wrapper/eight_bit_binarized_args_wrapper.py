@@ -149,3 +149,8 @@ class EightBitBinarizedArgsWrapper(BaseWrapper):
             args.append(arg_dict)
 
         return DualSeq(cmds=cmds, args=args)
+
+    def infer(self, input_text: str, max_new_tokens: int = 50) -> DualSeq:
+        # <-- DualSeq Output Generation -->
+        return self.generate(input_text, max_new_tokens=max_new_tokens)
+

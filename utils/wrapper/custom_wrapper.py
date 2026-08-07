@@ -10,7 +10,7 @@ from utils.wrapper.eight_bit_binarized_args_wrapper import EightBitBinarizedArgs
 from utils.wrapper.tokenized_one_sequence_args_wrapper import TokenizedOneSequenceArgsWrapper
 from utils.wrapper.pretrain_wrapper import PretrainWrapper
 from utils.wrapper.grpo_wrapper import GRPOWrapper
-from utils.representations.dual_seq.dual_seq import DualSeqMetadata
+from utils.representations.dual_seq.dual_seq import DualSeqMetadata, DualSeq
 
 class CustomWrapper(BaseWrapper):
     """Factory controller for model wrappers based on model/pipeline configurations."""
@@ -50,3 +50,15 @@ class CustomWrapper(BaseWrapper):
     def generate(self, *args, **kwargs) -> Any:
         # <-- Generation Delegate -->
         return self.wrapper.generate(*args, **kwargs)
+
+    def infer(self, input_text: str, max_new_tokens: int = 50) -> DualSeq:
+        # <-- Inference Delegate returning DualSeq -->
+        if hasattr(self.wrapper, "infer"):
+            return self.wrapper.infer(input_text, max_new_tokens=max_new_tokens)
+        res = self.wrapper.generate(input_text, max_new_tokens=max_new_tokens)
+        if isinstance(res, DualSeq):
+            return res
+        if isinstance(res, list):
+            return DualSeq(cmd_args_tuples=res)
+        return res
+
