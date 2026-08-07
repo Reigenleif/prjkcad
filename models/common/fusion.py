@@ -13,8 +13,8 @@ class CmdArgsFusion(nn.Module):
             nn.LayerNorm(d_model),
             nn.GELU()
         )
-        self.cmd_cross_attn = nn.MultiheadAttention(d_model, num_heads=8)
-        self.arg_cross_attn = nn.MultiheadAttention(d_model, num_heads=8)
+        self.cmd_cross_attn = nn.MultiheadAttention(d_model, num_heads=8, batch_first=True)
+        self.arg_cross_attn = nn.MultiheadAttention(d_model, num_heads=8, batch_first=True)
 
     def forward(self, cmd_embeds: torch.Tensor, arg_embeds: torch.Tensor) -> torch.Tensor:
         T_cmd = cmd_embeds.size(1)
@@ -22,12 +22,11 @@ class CmdArgsFusion(nn.Module):
         T = min(T_cmd, T_arg)
         cmd_trim = cmd_embeds[:, :T, :]
         arg_trim = arg_embeds[:, :T, :]
-        cat_embeds = torch.cat([cmd_trim, arg_trim], dim=-1)
 
-        cmd_out = self.cmd_cross_attn(query=cmd_trim, key=arg_trim, value=arg_trim)[0]
-        arg_out = self.arg_cross_attn(query=arg_trim, key=cmd_trim, value=cmd_trim)[0]
+        cmd_out, _ = self.cmd_cross_attn(query=cmd_trim, key=arg_trim, value=arg_trim)
+        arg_out, _ = self.arg_cross_attn(query=arg_trim, key=cmd_trim, value=cmd_trim)
 
-        return self.fusion(cat_embeds)
+        return self.fusion(torch.cat([cmd_out, arg_out], dim=-1))
 
 
 class FusionBlock(nn.Module):

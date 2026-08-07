@@ -72,7 +72,7 @@ class SelfAttentionBlock(nn.Module):
     """
     Designed only for Self-Attention
     """
-    def __init__(self, d_model: int, n_heads: int = 8, is_causal: bool = False):
+    def __init__(self, d_model: int, n_heads: int = 8, is_causal: bool = False, dropout: float = 0.0):
         super().__init__()
         self.is_causal = is_causal
         self.n_heads = n_heads
@@ -84,9 +84,11 @@ class SelfAttentionBlock(nn.Module):
         self.out_proj = nn.Linear(d_model, d_model)
         self.norm1 = nn.LayerNorm(d_model)
         self.norm2 = nn.LayerNorm(d_model)
+        self.dropout = nn.Dropout(dropout)
         self.ffn = nn.Sequential(
             nn.Linear(d_model, d_model * 4),
             nn.GELU(),
+            nn.Dropout(dropout),
             nn.Linear(d_model * 4, d_model),
         )
 
@@ -99,8 +101,8 @@ class SelfAttentionBlock(nn.Module):
             v = self.v_proj(x_2d).view(B * A, T, self.n_heads, self.head_dim).transpose(1, 2)
             attn = F.scaled_dot_product_attention(q, k, v, is_causal=self.is_causal)
             attn = attn.transpose(1, 2).contiguous().view(B * A, T, D)
-            out = self.norm1(x_2d + self.out_proj(attn))
-            out = self.norm2(out + self.ffn(out))
+            out = self.norm1(x_2d + self.dropout(self.out_proj(attn)))
+            out = self.norm2(out + self.dropout(self.ffn(out)))
             return out.view(B, T, A, D)
 
         B, T, D = x.shape
@@ -109,6 +111,6 @@ class SelfAttentionBlock(nn.Module):
         v = self.v_proj(x).view(B, T, self.n_heads, self.head_dim).transpose(1, 2)
         attn = F.scaled_dot_product_attention(q, k, v, is_causal=self.is_causal)
         attn = attn.transpose(1, 2).contiguous().view(B, T, D)
-        x = self.norm1(x + self.out_proj(attn))
-        x = self.norm2(x + self.ffn(x))
+        x = self.norm1(x + self.dropout(self.out_proj(attn)))
+        x = self.norm2(x + self.dropout(self.ffn(x)))
         return x

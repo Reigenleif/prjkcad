@@ -7,7 +7,7 @@ class RotaryPositionalEncoding(nn.Module):
         super().__init__()
         self.d_model = d_model
         self.max_len = max_len
-        self.inv_freq = 1.0 / (10000 ** (torch.arange(0, d_model, 2).float() / d_model))
+        self.register_buffer("inv_freq", 1.0 / (10000 ** (torch.arange(0, d_model, 2).float() / d_model)))
 
     def _get_sincos(self, seq_len: int, device: torch.device):
         t = torch.arange(seq_len, device=device, dtype=torch.float32)

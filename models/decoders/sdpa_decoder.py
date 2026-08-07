@@ -127,6 +127,8 @@ class SDPATransformerDecoder(nn.Module):
             raise ValueError("Either input_ids or inputs_embeds must be provided")
 
         seq_len = tgt_state.size(1)
+        positions = torch.arange(seq_len, device=tgt_state.device).unsqueeze(0)
+        tgt_state = tgt_state + self.pos_embedding(positions)
 
         causal_mask = self._causal_mask(seq_len, tgt_state.device)
 
