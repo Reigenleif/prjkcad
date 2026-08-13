@@ -1,7 +1,7 @@
 import numpy as np
 from utils.dual_seq import DualSeq
 from utils.render import render_dual_seq_to_shape
-from utils.evaluate.shape_evaluation_functions import chamfer_distance_from_shapes
+from utils.evaluate.render.chamfer_distance import chamfer_distance_from_shapes
 
 def compute_cd(pred_cmds, pred_args, gt_cmds, gt_args, default_invalid_cd: float = 1.0) -> float:
     """
