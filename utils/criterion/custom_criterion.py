@@ -9,6 +9,7 @@ from utils.criterion.float_args_criterion import FloatArgsCriterion
 from utils.criterion.eight_bit_binarized_args_criterion import EightBitBinarizedArgsCriterion
 from utils.criterion.tokenized_one_sequence_args_criterion import TokenizedOneSequenceArgsCriterion
 from utils.criterion.pretrain_criterion import PretrainCriterion
+from utils.criterion.text2cad_criterion import Text2CADCriterion
 
 class CustomCriterion(BaseCriterion):
     """Factory controller for criterion components based on configuration."""
@@ -33,6 +34,8 @@ class CustomCriterion(BaseCriterion):
             return TokenizedOneSequenceArgsCriterion(**merged_kwargs)
         if cls_name in ["PretrainCriterion", "pretrain"]:
             return PretrainCriterion(**merged_kwargs)
+        if cls_name in ["Text2CADCriterion", "Text2CAD", "text2cad", "CADSequence", "cad_seq"]:
+            return Text2CADCriterion(**merged_kwargs)
 
         # <-- Fallback Default -->
         return FloatArgsCriterion(**merged_kwargs)
