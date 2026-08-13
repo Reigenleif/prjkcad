@@ -31,7 +31,7 @@ class BaseModel(nn.Module):
             raise ValueError(f"d_model must be one of [256, 512, 768, 1024], got {self.d_model}")
 
         self.schema = get_dualseq_schema()
-        self.out_type = getattr(cfg, "out_type", "FloatArgs")
+        self.out_type = getattr(cfg, "out_type", None) or "FloatArgs"
 
         self.pad_id = self.schema["cmd_pad_id"]
         self.sos_id = self.schema["cmd_sos_id"]

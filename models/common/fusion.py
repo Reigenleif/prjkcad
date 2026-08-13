@@ -30,8 +30,9 @@ class CmdArgsFusion(nn.Module):
 
 
 class FusionBlock(nn.Module):
-    def __init__(self, d_model: int, n_heads: int = 8, dim_feedforward: int = 768, dropout: float = 0.1):
+    def __init__(self, d_model: int, n_heads: int = 8, dim_feedforward: Optional[int] = None, dropout: float = 0.1):
         super().__init__()
+        dim_feedforward = dim_feedforward or (4 * d_model) # Defauolt to 4xd_model instead 
         head_dim = d_model // n_heads
 
         self.cmd_self_attn = SDPAttention(d_model, n_heads, head_dim, dropout_p=dropout)

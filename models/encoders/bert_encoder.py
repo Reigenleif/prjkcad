@@ -31,6 +31,14 @@ class PretrainedBERTEncoder(nn.Module):
             self.proj = None
 
     def forward(self, input_ids: torch.Tensor, attention_mask: torch.Tensor) -> torch.Tensor:
+        if attention_mask is not None and attention_mask.shape[1] != input_ids.shape[1]:
+            if attention_mask.shape[1] > input_ids.shape[1]:
+                attention_mask = attention_mask[:, :input_ids.shape[1]]
+            else:
+                pad_len = input_ids.shape[1] - attention_mask.shape[1]
+                pad_tensor = torch.zeros((attention_mask.size(0), pad_len), dtype=attention_mask.dtype, device=attention_mask.device)
+                attention_mask = torch.cat([attention_mask, pad_tensor], dim=1)
+
         outputs = self.encoder(
             input_ids=input_ids,
             attention_mask=attention_mask,
