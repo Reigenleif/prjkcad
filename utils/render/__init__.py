@@ -47,7 +47,7 @@ def render_dual_seq_to_shape(cmds, args):
             ea = part["extrude_args"]
             if ea is None: continue
             ax3   = make_coord_system(part["coor"])
-            scale = next((ea[k] for k in ea if k.endswith("_scale")), 1.0)
+            scale = 1.0
             dtn   = next((ea[k] for k in ea if k.endswith("_dtn")), 0.0) or 0.0
             don   = next((ea[k] for k in ea if k.endswith("_don")), 0.0) or 0.0
             part_solid = None
@@ -66,8 +66,8 @@ def render_dual_seq_to_shape(cmds, args):
 
 
 def render_dual_seq_to_img(dual_seq, img_path: str, with_str: bool = False, with_desc: str = None) -> None:
-    """Convert DualSeq → isometric PNG at img_path.
-    Per COOR→EXTRUDE_* block: build gp_Ax3 coord system, build 2D sketch faces
+    """Convert DualSeq -> isometric PNG at img_path.
+    Per COOR->EXTRUDE_* block: build gp_Ax3 coord system, build 2D sketch faces
     (inner/outer loop detection in sketch2d), extrude each face, union all face
     solids into the PART solid, then apply the EXTRUDE_* boolean onto the running body."""
     import os
@@ -84,8 +84,7 @@ def render_dual_seq_to_img(dual_seq, img_path: str, with_str: bool = False, with
         ea = part["extrude_args"]
         if ea is None: continue
         ax3   = make_coord_system(part["coor"])
-        # Extract extrude params — key suffixes differ by operation type (_new/_join/_cut/etc.)
-        scale = next((ea[k] for k in ea if k.endswith("_scale")), 1.0)
+        scale = 1.0
         dtn   = next((ea[k] for k in ea if k.endswith("_dtn")), 0.0) or 0.0
         don   = next((ea[k] for k in ea if k.endswith("_don")), 0.0) or 0.0
         part_solid = None
@@ -110,15 +109,34 @@ def render_dual_seq_to_img(dual_seq, img_path: str, with_str: bool = False, with
                 text_parts = []
                 if with_desc:
                     descriptions = getattr(dual_seq, "descriptions", {})
+                    desc_val = ""
+                    desc_key = "expert"
                     if isinstance(descriptions, dict):
-                        desc_val = descriptions.get(with_desc, "")
-                        if desc_val:
-                            import textwrap
-                            text_parts.append(f"Description ({with_desc}):")
-                            text_parts.append("-" * 60)
-                            text_parts.extend(textwrap.wrap(desc_val, width=60))
-                            text_parts.append("=" * 60)
-                            text_parts.append("")
+                        if isinstance(with_desc, str) and with_desc in descriptions:
+                            desc_key = with_desc
+                            desc_val = descriptions[with_desc]
+                        elif isinstance(with_desc, str) and with_desc not in ("expert", "beginner", "intermediate", "abstract"):
+                            desc_val = with_desc
+                            desc_key = "text"
+                        else:
+                            for k in ["expert", "intermediate", "beginner", "abstract"]:
+                                if k in descriptions and descriptions[k]:
+                                    desc_val = descriptions[k]
+                                    desc_key = k
+                                    break
+                            if not desc_val and descriptions:
+                                desc_key, desc_val = next(iter(descriptions.items()))
+                    elif isinstance(descriptions, str) and descriptions.strip():
+                        desc_val = descriptions.strip()
+                        desc_key = "text"
+
+                    if desc_val:
+                        import textwrap
+                        text_parts.append(f"=== INPUT DESCRIPTION ({desc_key}) ===")
+                        text_parts.append("-" * 60)
+                        text_parts.extend(textwrap.wrap(str(desc_val), width=60))
+                        text_parts.append("=" * 60)
+                        text_parts.append("")
                 
                 if with_str:
                     text_parts.append(str(dual_seq))
