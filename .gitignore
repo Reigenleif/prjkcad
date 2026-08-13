@@ -19,3 +19,5 @@ out/
 
 wandb/
 lightning_logs/
+
+cache/
