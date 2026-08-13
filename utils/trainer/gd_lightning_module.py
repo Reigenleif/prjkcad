@@ -3,11 +3,12 @@ from __future__ import annotations
 from typing import Any, Dict, Tuple, Union
 import numpy as np
 import torch
-from utils.trainer.base_trainer import BaseTrainer
+
+from utils.trainer.base_lightning_module import BaseLightningModule
 from utils.evaluate import eval_batch
 
-class GDTrainer(BaseTrainer):
-    """Data-type agnostic Gradient Descent trainer for Fine-Tuning and Pretraining."""
+class GDLightningModule(BaseLightningModule):
+    """Gradient descent module for fine-tuning and pretraining."""
 
     def _scheduled_ratio(self) -> float:
         wrapper = getattr(self.wrapper, "wrapper", self.wrapper)
@@ -17,32 +18,40 @@ class GDTrainer(BaseTrainer):
         ratio = tf_ratio * (tf_decay ** self.current_epoch)
         return float(max(min_tf, min(1.0, ratio)))
 
+    def forward(self, batch: Any, is_teacher_forcing: bool = False, **kwargs) -> Any:
+        if self.wrapper is None:
+            raise NotImplementedError("Module wrapper is not set.")
+        return self.wrapper(batch, is_teacher_forcing=is_teacher_forcing, **kwargs)
+
     def training_step(self, batch: Union[Dict[str, Any], Tuple], batch_idx: int) -> torch.Tensor:
-        # <-- Forward & Loss Compute -->
         ratio = self._scheduled_ratio()
         is_tf = bool(np.random.rand() < ratio)
-        outputs = self.wrapper(batch, is_teacher_forcing=is_tf)
+        outputs = self(batch, is_teacher_forcing=is_tf)
         loss = self.criterion(outputs, batch)
+        if isinstance(loss, tuple):
+            loss = loss[0]
 
-        # <-- Metrics Logging -->
-        lr = self.optimizers().param_groups[0]["lr"] if self.optimizers() else 0.0
-        self.log("train_loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
-        self.log("lr", lr, on_step=True, prog_bar=False, logger=True)
+        try:
+            opts = self.optimizers()
+            lr = opts.param_groups[0]["lr"] if opts and hasattr(opts, "param_groups") else 0.0
+        except Exception:
+            lr = 0.0
+        self.log("train/loss", loss, on_step=True, on_epoch=True, prog_bar=True, logger=True)
+        self.log("train/lr", lr, on_step=True, prog_bar=False, logger=True)
         return loss
 
     def validation_step(self, batch: Union[Dict[str, Any], Tuple], batch_idx: int) -> torch.Tensor:
-        # <-- Validation Forward & Loss Compute -->
-        outputs = self.wrapper(batch, is_teacher_forcing=True)
+        outputs = self(batch, is_teacher_forcing=True)
         loss = self.criterion(outputs, batch)
+        if isinstance(loss, tuple):
+            loss = loss[0]
 
-        # <-- Validation Metrics Logging -->
-        self.log("val_loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
-        self.log("val_perplexity", torch.exp(loss.detach()), on_step=False, on_epoch=True, prog_bar=False, logger=True)
+        self.log("val/loss", loss, on_step=False, on_epoch=True, prog_bar=True, logger=True)
+        self.log("val/perplexity", torch.exp(loss.detach()), on_step=False, on_epoch=True, prog_bar=False, logger=True)
 
-        # <-- Non-Loss Metrics Evaluation -->
         try:
             with torch.no_grad():
-                gen_outputs = self.wrapper(batch, is_teacher_forcing=False)
+                gen_outputs = self(batch, is_teacher_forcing=False)
                 cmd_targets = batch[1] if isinstance(batch, (tuple, list)) and len(batch) > 1 else (batch.get("cmd_targets") if isinstance(batch, dict) else None)
                 arg_targets = batch[2] if isinstance(batch, (tuple, list)) and len(batch) > 2 else (batch.get("arg_targets") if isinstance(batch, dict) else None)
 
@@ -60,9 +69,8 @@ class GDTrainer(BaseTrainer):
                     metadata = getattr(self.wrapper, "metadata", None) or getattr(getattr(self.wrapper, "wrapper", None), "metadata", None)
                     eval_metrics = eval_batch(cmd_preds, cmd_targets, arg_preds, arg_targets, out_type=out_type, metadata=metadata)
                     for k, v in eval_metrics.items():
-                        self.log(f"val_{k}", v, on_step=False, on_epoch=True, prog_bar=(k in ["avg_f1", "arg_float_mse", "arg_float_r2"]), logger=True)
-        except Exception:
-            pass
+                        self.log(k, v, on_step=False, on_epoch=True, prog_bar=(k in ["eval/avg_f1", "eval/arg_float_mse", "eval/arg_float_r2"]), logger=True)
+        except Exception as e:
+            print(f"[GDLightningModule] Eval error (suppressed): {type(e).__name__}: {e}")
 
         return loss
-

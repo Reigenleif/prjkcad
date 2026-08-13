@@ -6,32 +6,11 @@ import numpy as np
 import torch
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger, CSVLogger
-from pytorch_lightning.callbacks import TQDMProgressBar
 import wandb
 
-from utils.trainer.gd_trainer import GDTrainer
-from utils.trainer.grpo_trainer import GRPOTrainer
-from pytorch_lightning.callbacks import Callback
-from tqdm import tqdm
-
-class GlobalStepProgressBar(Callback):
-    def __init__(self, total_steps):
-        super().__init__()
-        self.total_steps = total_steps
-        self.pbar = None
-
-    def on_fit_start(self, trainer, pl_module):
-        self.pbar = tqdm(total=self.total_steps, desc="Training")
-
-    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
-        self.pbar.update(1)
-        self.pbar.set_postfix({
-            "global_step": trainer.global_step,
-            "epoch": trainer.current_epoch
-        })
-
-    def on_fit_end(self, trainer, pl_module):
-        self.pbar.close()
+from utils.trainer.gd_lightning_module import GDLightningModule
+from utils.trainer.grpo_lightning_module import GRPOLightningModule
+from utils.trainer.components.progress_bar import GlobalStepProgressBar
 
 class CustomTrainer:
     """Factory controller for Trainers using PyTorch Lightning Trainer."""
@@ -68,7 +47,7 @@ class CustomTrainer:
         self.kwargs = kwargs
 
         if trainer_type == "grpo":
-            self.lightning_module = GRPOTrainer(
+            self.lightning_module = GRPOLightningModule(
                 wrapper=wrapper,
                 criterion=criterion,
                 optimizer=optimizer,
@@ -77,7 +56,7 @@ class CustomTrainer:
                 **kwargs
             )
         else:
-            self.lightning_module = GDTrainer(
+            self.lightning_module = GDLightningModule(
                 wrapper=wrapper,
                 criterion=criterion,
                 optimizer=optimizer,
@@ -96,10 +75,10 @@ class CustomTrainer:
         wandb_project = os.environ.get("WANDB_PROJECT") or getattr(self.trainer_cfg, "wandb_project", None) or "PRJKCAD"
         if self.use_wandb:
             if wandb.run is not None:
-                logger = WandbLogger(experiment=wandb.run)
+                logger = WandbLogger(experiment=wandb.run, log_model=False)
             else:
                 try:
-                    logger = WandbLogger(project=wandb_project, name=self.run_name, save_dir=self.save_folder or "out")
+                    logger = WandbLogger(project=wandb_project, name=self.run_name, save_dir=self.save_folder or "out", log_model=False)
                 except Exception:
                     logger = CSVLogger(save_dir=self.save_folder or "out", name=self.run_name or "logs")
         else:
@@ -124,6 +103,18 @@ class CustomTrainer:
         if total_steps is not None and total_steps > 0:
             callbacks.append(GlobalStepProgressBar(total_steps=total_steps))
 
+        extra_callbacks = self.kwargs.get("callbacks", [])
+        if extra_callbacks:
+            if isinstance(extra_callbacks, list):
+                callbacks.extend(extra_callbacks)
+            else:
+                callbacks.append(extra_callbacks)
+
+        log_every_n_steps = getattr(self.trainer_cfg, "log_every_n_steps", 50) if self.trainer_cfg else 50
+        if total_steps is not None and total_steps > 0:
+            log_every_n_steps = min(log_every_n_steps, total_steps)
+        log_every_n_steps = max(1, log_every_n_steps)
+
         quant_type = self.kwargs.get("quant_type") or getattr(self.trainer_cfg, "quant_type", None)
         precision = "16-mixed" if (quant_type == "fp16" and accelerator == "gpu") else "32-true"
 
@@ -138,7 +129,7 @@ class CustomTrainer:
             logger=logger,
             val_check_interval=val_check_interval,
             check_val_every_n_epoch=check_val_every_n_epoch,
-            log_every_n_steps=1,
+            log_every_n_steps=log_every_n_steps,
             callbacks=callbacks, 
             enable_progress_bar=True,
         )
@@ -187,3 +178,7 @@ class CustomTrainer:
 
     def validate(self, val_loader: Optional[Any] = None) -> dict[str, float]:
         return self.eval(val_loader)
+
+    def save_progression(self, folder_path: str) -> None:
+        if hasattr(self.lightning_module, "save_progression"):
+            self.lightning_module.save_progression(folder_path)

@@ -6,7 +6,7 @@ import pandas as pd
 import torch
 import pytorch_lightning as pl
 
-class BaseTrainer(pl.LightningModule):
+class BaseLightningModule(pl.LightningModule):
     """Base PyTorch Lightning module providing unified optimization and metric tracking."""
 
     def __init__(
@@ -21,7 +21,6 @@ class BaseTrainer(pl.LightningModule):
         **kwargs
     ):
         super().__init__()
-        # <-- Core Components Setup -->
         self.wrapper = wrapper
         self.criterion = criterion
         self.custom_optimizer = optimizer
@@ -30,8 +29,12 @@ class BaseTrainer(pl.LightningModule):
         self.save_folder = save_folder
         self.progression: list[dict[str, float]] = []
 
+    def forward(self, *args, **kwargs) -> Any:
+        if self.wrapper is None:
+            raise NotImplementedError("Module wrapper is not set.")
+        return self.wrapper(*args, **kwargs)
+
     def configure_optimizers(self) -> Any:
-        # <-- Configure Optimizers & Schedulers -->
         if self.custom_optimizer is None:
             opt = torch.optim.AdamW(self.parameters(), lr=1e-3)
             return opt
@@ -46,8 +49,17 @@ class BaseTrainer(pl.LightningModule):
             }
         return self.custom_optimizer
 
+    def on_validation_epoch_end(self) -> None:
+        metrics = {}
+        for k, v in self.trainer.callback_metrics.items():
+            if isinstance(v, torch.Tensor):
+                metrics[k] = float(v.detach().cpu().item())
+            elif isinstance(v, (float, int)):
+                metrics[k] = float(v)
+        if metrics:
+            self.progression.append(metrics)
+
     def save_progression(self, folder_path: str) -> None:
-        # <-- Save History CSV -->
         if not self.progression:
             return
         os.makedirs(folder_path, exist_ok=True)

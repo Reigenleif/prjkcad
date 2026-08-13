@@ -1,11 +1,20 @@
-from utils.trainer.base_trainer import BaseTrainer
-from utils.trainer.gd_trainer import GDTrainer
-from utils.trainer.grpo_trainer import GRPOTrainer
-from utils.trainer.custom_trainer import CustomTrainer
+from utils.trainer.base_lightning_module import BaseLightningModule
+from utils.trainer.gd_lightning_module import GDLightningModule
+from utils.trainer.grpo_lightning_module import GRPOLightningModule
+from utils.trainer.components.custom_trainer import CustomTrainer
+from utils.trainer.components.progress_bar import GlobalStepProgressBar
+
+BaseModule = BaseLightningModule
+GDModule = GDLightningModule
+GRPOModule = GRPOLightningModule
 
 __all__ = [
-    "BaseTrainer",
-    "GDTrainer",
-    "GRPOTrainer",
     "CustomTrainer",
+    "GlobalStepProgressBar",
+    "BaseLightningModule",
+    "GDLightningModule",
+    "GRPOLightningModule",
+    "BaseModule",
+    "GDModule",
+    "GRPOModule",
 ]
