@@ -238,24 +238,30 @@ class Circle(Curve):
         self.is_numerical = True
         self.bit = bit
         size = 2**bit - 1
-        self.metadata["pt1"] = int_round(
-            np.clip(self.metadata["pt1"], a_min=0, a_max=size)
-        )
-        self.metadata["pt2"] = int_round(
-            np.clip(self.metadata["pt2"], a_min=0, a_max=size)
-        )
-        self.metadata["pt3"] = int_round(
-            np.clip(self.metadata["pt3"], a_min=0, a_max=size)
-        )
-        self.metadata["pt4"] = int_round(
-            np.clip(self.metadata["pt4"], a_min=0, a_max=size)
-        )
-        self.metadata["center"] = int_round(
-            np.clip(self.metadata["center"], a_min=0, a_max=size)
-        )
-        self.metadata["radius"] = int_round(
-            [np.clip(self.metadata["radius"], a_min=0, a_max=size)]
-        )[0]
+        if "pt1" in self.metadata:
+            self.metadata["pt1"] = int_round(
+                np.clip(self.metadata["pt1"], a_min=0, a_max=size)
+            )
+        if "pt2" in self.metadata:
+            self.metadata["pt2"] = int_round(
+                np.clip(self.metadata["pt2"], a_min=0, a_max=size)
+            )
+        if "pt3" in self.metadata:
+            self.metadata["pt3"] = int_round(
+                np.clip(self.metadata["pt3"], a_min=0, a_max=size)
+            )
+        if "pt4" in self.metadata:
+            self.metadata["pt4"] = int_round(
+                np.clip(self.metadata["pt4"], a_min=0, a_max=size)
+            )
+        if "center" in self.metadata:
+            self.metadata["center"] = int_round(
+                np.clip(self.metadata["center"], a_min=0, a_max=size)
+            )
+        if "radius" in self.metadata:
+            self.metadata["radius"] = int_round(
+                [np.clip(self.metadata["radius"], a_min=0, a_max=size)]
+            )[0]
 
         if self.metadata["pt1"][1] == self.metadata["center"][1]:
             if self.metadata["pt1"][1] < 255:

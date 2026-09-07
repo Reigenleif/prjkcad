@@ -20,15 +20,22 @@ class DualSeqMetadata:
                 if cmd in DEFAULT_COMMANDS:
                     arg_dict = ds.args[i]
                     for key in DEFAULT_COMMANDS[cmd]:
-                        val = arg_dict.get(key, 0.0)
-                        all_vals[key].append(val)
+                        if key in arg_dict:
+                            all_vals[key].append(float(arg_dict[key]))
                         
         for key, vals in all_vals.items():
             if vals:
-                self.min_vals[key] = float(min(vals))
-                self.max_vals[key] = float(max(vals))
+                min_v = float(min(vals))
+                max_v = float(max(vals))
+                if min_v == max_v:
+                    if min_v == 0.0:
+                        min_v, max_v = -1.0, 1.0
+                    else:
+                        min_v, max_v = min_v - 1.0, max_v + 1.0
+                self.min_vals[key] = min_v
+                self.max_vals[key] = max_v
             else:
-                self.min_vals[key] = 0.0
+                self.min_vals[key] = -1.0
                 self.max_vals[key] = 1.0
                 
     def float_to_bin(self, key: str, val: float) -> int:

@@ -174,12 +174,10 @@ class CoordinateSystem(object):
         self.is_numerical = True
         size = 2**bit - 1
         self.metadata["origin"] = int_round(
-            ((self.metadata["origin"] + 1.0) / 2 * (size + 1)).clip(min=0, max=size)
+            np.clip((np.asarray(self.metadata["origin"]) + 1.0) / 2 * (size + 1), 0, size)
         )
         self.metadata["euler_angles"] = int_round(
-            ((self.metadata["euler_angles"] / np.pi + 1.0) / 2 * (size + 1)).clip(
-                min=0, max=size
-            )
+            np.clip((np.asarray(self.metadata["euler_angles"]) / np.pi + 1.0) / 2 * (size + 1), 0, size)
         )
 
     def denumericalize(self, bit):

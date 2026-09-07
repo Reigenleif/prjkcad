@@ -475,6 +475,11 @@ class DualSeq:
         return [id_to_command.get(id, "<UNK>") for id in id_seq]
 
     @classmethod
+    def from_json(cls, json_object: dict, uid: str = "", format: str = "text2cad") -> "DualSeq":
+        """Create a DualSeq object from a JSON CADSequence dict."""
+        return cls(json_object=json_object, uid=uid, format=format)
+
+    @classmethod
     def from_sequences(cls, cmds: list[str], args_tokens: list[int], uid: str = "") -> "DualSeq":
         """Create a DualSeq object from raw predicted command strings and arg tokens."""
         schema = get_dualseq_schema()

@@ -167,22 +167,26 @@ class ExtrudeSequence(object):
         )
         self.metadata["extent_one"] = int_round(
             [
-                ((self.metadata["extent_one"] + 1.0) / 2 * (size + 1)).clip(
-                    min=0, max=size
+                np.clip(
+                    (self.metadata["extent_one"] + 1.0) / 2 * (size + 1),
+                    0,
+                    size,
                 )
             ]
         )[0]
         self.metadata["extent_two"] = int_round(
             [
-                ((self.metadata["extent_two"] + 1.0) / 2 * (size + 1)).clip(
-                    min=0, max=size
+                np.clip(
+                    (self.metadata["extent_two"] + 1.0) / 2 * (size + 1),
+                    0,
+                    size,
                 )
             ]
         )[0]
         self.metadata["boolean"] = int(self.metadata["boolean"])
         self.coordsystem.numericalize(bit)
         self.metadata["sketch_size"] = int_round(
-            [(self.metadata["sketch_size"] / 2 * (size + 1)).clip(min=0, max=size)]
+            [np.clip(self.metadata["sketch_size"] / 2 * (size + 1), 0, size)]
         )[0]
 
         # Due to quantization, small extent values can be quantized to zero so change the values to 1
@@ -268,11 +272,17 @@ class ExtrudeSequence(object):
         return ext
 
     def _json(self):
+        bool_val = self.metadata.get("boolean", 0)
+        if isinstance(bool_val, int) and 0 <= bool_val < len(EXTRUDE_OPERATIONS):
+            op_name = EXTRUDE_OPERATIONS[bool_val]
+        else:
+            op_name = "NewBodyFeatureOperation"
+
         extrude_json = {
-            "extrude_depth_towards_normal": float(float_round(self.metadata["extent_one"])),
-            "extrude_depth_opposite_normal": float(float_round(self.metadata["extent_two"])),
-            "sketch_scale": float(float_round(self.metadata["sketch_size"])),
-            "operation": EXTRUDE_OPERATIONS[self.metadata["boolean"]],
+            "extrude_depth_towards_normal": float(float_round(self.metadata.get("extent_one", 0.0))),
+            "extrude_depth_opposite_normal": float(float_round(self.metadata.get("extent_two", 0.0))),
+            "sketch_scale": float(float_round(self.metadata.get("sketch_size", 1.0))),
+            "operation": op_name,
         }
 
         return extrude_json
