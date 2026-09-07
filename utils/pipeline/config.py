@@ -66,8 +66,15 @@ class DataConfig(_ConfigBase):
     batch_size: int
     split_json: Optional[str] = None
     sample_ratio: Optional[float] = None
+    val_sample_ratio: Optional[float] = None
+    test_sample_ratio: Optional[float] = None
     max_samples: Optional[int] = None
+    val_max_sample: Optional[int] = None
+    test_max_sample: Optional[int] = None
+    test_max_samples: Optional[int] = None
     out_type: Optional[str] = None
+    coreset_kwargs: Optional[Dict[str, Any]] = None
+    random_sample: Optional[bool] = False
 
 @dataclass
 class TokenizerConfig(_ConfigBase):
@@ -180,8 +187,13 @@ class GRPOKwargsConfig(_ConfigBase):
     clip_eps: float = 0.2
     min_cd: float = 1e-5
     max_cd: float = 0.5
-    eval_fraction: float = 0.1
     temperature: float = 1.0
+    subset_top_p: float = 1.0
+    subset_refresh_every: int = 0  # 0 = never refresh; N = refresh subset every N epochs
+    ref_sync_every: int = 50
+    kl_coef: float = 0.01
+    lambda_arg_reward: float = 0.5
+    deviation_limit: int = 2
 
 @dataclass
 class GRPOConfig(_ConfigBase):

@@ -48,7 +48,7 @@ class CustomPipeline:
             return PretrainPipeline(cfg)
         if cfg_type == "grpo":
             return GRPOPipeline(cfg)
-        if cfg_type in ["fine_tune", "fine_tuning"]:
+        if cfg_type in ["fine_tune", "fine_tuning", "text2cad"]:
             return FineTunePipeline(cfg)
 
         raise ValueError(f"Unsupported config type: {cfg_type}")

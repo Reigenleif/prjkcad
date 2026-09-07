@@ -7,10 +7,10 @@ from transformers import AutoTokenizer
 
 from utils.pipeline.config import Config
 from utils.set_seed import set_seed
-from utils.data_utils import load_split_data
+from utils.data_utils import load_split_data, load_test_data
 from utils.wrapper.custom_wrapper import CustomWrapper
 from utils.criterion.custom_criterion import CustomCriterion
-from utils.trainer.custom_trainer import CustomTrainer
+from utils.trainer import CustomTrainer
 from utils.representations.dual_seq.dual_seq import DualSeqMetadata, DualSeq
 from utils.wandb import init_wandb
 
@@ -29,6 +29,7 @@ class BasePipeline:
         self.text_tokenizer = None
         self.dual_seqs = None
         self.val_dual_seqs = None
+        self.test_dual_seqs = None
         self.metadata = None
         self.wrapper = None
         self.criterion = None
@@ -49,8 +50,19 @@ class BasePipeline:
         else:
             raise ValueError(f"Unsupported tokenizer source: {self.cfg.tokenizer.source}")
 
+    @property
+    def tokenizer(self):
+        if self.text_tokenizer is None:
+            self.load_tokenizer()
+        return self.text_tokenizer
+
     def load_dataset(self) -> None:
         # <-- Load Dataset Split Data -->
+        val_max_sample = getattr(self.cfg.data, "val_max_sample", None)
+        val_sample_ratio = getattr(self.cfg.data, "val_sample_ratio", None)
+        test_max_sample = getattr(self.cfg.data, "test_max_sample", getattr(self.cfg.data, "test_max_samples", None))
+        random_sample = getattr(self.cfg.data, "random_sample", False)
+        seed = getattr(self.cfg, "random_seed", 42)
         if self.dual_seqs is None:
             self.dual_seqs, self.val_dual_seqs = load_split_data(
                 data_folder=self.cfg.data.data_folder,
@@ -58,9 +70,30 @@ class BasePipeline:
                 source_data_type=self.cfg.data.source_data_type,
                 split_json=self.cfg.data.split_json,
                 max_samples=self.cfg.data.max_samples,
-                sample_ratio=self.cfg.data.sample_ratio
+                sample_ratio=self.cfg.data.sample_ratio,
+                val_max_sample=val_max_sample,
+                val_sample_ratio=val_sample_ratio,
+                random_train=random_sample,
+                seed=seed,
             )
+        if val_max_sample is not None and self.val_dual_seqs is not None:
+            self.val_dual_seqs = self.val_dual_seqs[:val_max_sample]
+        if test_max_sample is not None:
+            self.load_test_dataset(test_max_sample=test_max_sample)
         self._fit_metadata_if_needed()
+
+    def load_test_dataset(self, test_max_sample: Optional[int] = None) -> list[DualSeq]:
+        t_max = test_max_sample if test_max_sample is not None else getattr(self.cfg.data, "test_max_sample", getattr(self.cfg.data, "test_max_samples", None))
+        t_ratio = getattr(self.cfg.data, "test_sample_ratio", None)
+        self.test_dual_seqs = load_test_data(
+            data_folder=self.cfg.data.data_folder,
+            metadata_csv=self.cfg.data.metadata_csv,
+            source_data_type=self.cfg.data.source_data_type,
+            split_json=self.cfg.data.split_json,
+            test_max_sample=t_max,
+            test_sample_ratio=t_ratio,
+        )
+        return self.test_dual_seqs
 
     def _fit_metadata_if_needed(self) -> None:
         # <-- Metadata Fitting Guard -->
@@ -96,6 +129,8 @@ class BasePipeline:
                     break
 
         if not path or not os.path.isfile(path):
+            if hasattr(self.cfg, "pretrained_path") and self.cfg.pretrained_path:
+                print(f"[BasePipeline] WARNING: Pretrained checkpoint '{self.cfg.pretrained_path}' NOT FOUND! Starting without pretrained weights.")
             return False
 
         checkpoint = torch.load(path, map_location="cpu", weights_only=False)
@@ -107,6 +142,10 @@ class BasePipeline:
         else:
             state_dict = checkpoint
 
+        if any(isinstance(v, torch.Tensor) and torch.isnan(v).any() for v in state_dict.values()):
+            print(f"Skipping corrupted checkpoint with NaN weights: {path}")
+            return False
+
         clean_state_dict = {}
         for k, v in state_dict.items():
             new_key = k
@@ -116,6 +155,11 @@ class BasePipeline:
             clean_state_dict[new_key] = v
 
         if hasattr(self, "model") and self.model is not None:
+            model_state = self.model.state_dict()
+            clean_state_dict = {
+                k: v for k, v in clean_state_dict.items()
+                if k in model_state and model_state[k].shape == v.shape
+            }
             self.model.load_state_dict(clean_state_dict, strict=False)
             print(f"Loaded checkpoint weights from: {path}")
             return True
@@ -129,7 +173,7 @@ class BasePipeline:
         self.load_criterion()
         self.load_trainer()
 
-    def run(self) -> None:
+    def run(self) -> Any:
         if self.trainer is None:
             self.load()
         eval_steps = getattr(getattr(self.cfg, "trainer", None), "eval_steps", 1000)
@@ -140,7 +184,15 @@ class BasePipeline:
                 wrapper=self.wrapper,
                 eval_steps=eval_steps
             )
-        self.trainer.fit(self.train_loader, self.val_loader)
+        return self.trainer.fit(self.train_loader, self.val_loader)
+
+    def eval(self, val_loader: Optional[Any] = None) -> Any:
+        if self.trainer is None:
+            self.load()
+        loader = val_loader if val_loader is not None else self.val_loader
+        if loader is None:
+            raise ValueError("No validation loader available for evaluation.")
+        return self.trainer.eval(loader)
 
     def infer(self, input_text: str, max_new_tokens: int = 50) -> DualSeq:
         # <-- Text-to-CAD DualSeq Inference -->

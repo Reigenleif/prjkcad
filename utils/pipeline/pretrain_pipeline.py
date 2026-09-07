@@ -13,7 +13,7 @@ from utils.data_utils import load_split_data
 from utils.dual_seq import get_dualseq_schema
 from utils.wrapper.custom_wrapper import CustomWrapper
 from utils.criterion.custom_criterion import CustomCriterion
-from utils.trainer.custom_trainer import CustomTrainer
+from utils.trainer import CustomTrainer
 from utils.scheduler.scheduler import CustomScheduler
 
 class PretrainPipeline(BasePipeline):
