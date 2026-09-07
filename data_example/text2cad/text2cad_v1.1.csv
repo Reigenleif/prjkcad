@@ -1,0 +1,88 @@
+uid,abstract,beginner,expert,description,keywords,intermediate,all_level_data,nli_data
+0000/00000007,A cylindrical object with a flat circular top and bottom. The top surface is slightly recessed compared to the bottom.,"The design consists of a cylindrical base with a flat circular top and bottom. The top surface is slightly recessed compared to the bottom, giving the object a subtle, stepped appearance. The base measures about 0.75 units in diameter and 0.1046 units in height.","Start by creating a new coordinate system with Euler angles set to zero degrees in all axes and a translation vector also set to zero. Next, draw a two-dimensional sketch on a single face. Within this face, draw a single loop containing a circle centered at coordinates [0.375, 0.375] with a radius of 0.375 units. After drawing the circle, apply a scale factor of 0.75 to the entire sketch. Ensure that the scaled sketch remains aligned with the original coordinate system by rotating it using Euler angles of zero degrees and translating it using a vector of zero. To transform the two-dimensional sketch into a three-dimensional model, extrude the sketch along its normal direction by 0.1046 units. Do not extrude in the opposite direction, as this will create a new solid body. The final dimensions of the cylindrical base are 0.7499999633140781 units in length and width, and 0.10461455694430137 units in height. The top surface of the cylinder is slightly recessed compared to the bottom, giving the object a subtle, stepped appearance.",A cylindrical object with a flat circular top and bottom. The top surface is slightly recessed compared to the bottom.,"['Cylinder', 'flat top', 'circular', 'recessed', 'flat bottom.']","The first step involves setting up a new coordinate system with no rotation or translation. A two-dimensional sketch is then created on a single face, featuring a single loop with a circle at its center. The circle has a radius that is scaled down to 75% of its original size. This scaled sketch is then transformed into a three-dimensional model by extruding it along its normal direction to create a solid body. The resulting shape is a cylindrical object with a flat circular top and bottom. The top surface is slightly recessed compared to the bottom. The final dimensions of the cylindrical base are approximately 0.75 units in length and width, and 0.1046 units in height.","<level1>
+Start by creating a new coordinate system with Euler angles set to zero degrees in all axes and a translation vector also set to zero. Next, draw a two-dimensional sketch on a single face. Within this face, draw a single loop containing a circle centered at coordinates [0.375, 0.375] with a radius of 0.375 units. After drawing the circle, apply a scale factor of 0.75 to the entire sketch. Ensure that the scaled sketch remains aligned with the original coordinate system by rotating it using Euler angles of zero degrees and translating it using a vector of zero. To transform the two-dimensional sketch into a three-dimensional model, extrude the sketch along its normal direction by 0.1046 units. Do not extrude in the opposite direction, as this will create a new solid body. The final dimensions of the cylindrical base are 0.7499999633140781 units in length and width, and 0.10461455694430137 units in height. The top surface of the cylinder is slightly recessed compared to the bottom, giving the object a subtle, stepped appearance.
+</level1>
+
+<level2>
+The first step involves setting up a new coordinate system with no rotation or translation. A two-dimensional sketch is then created on a single face, featuring a single loop with a circle at its center. The circle has a radius that is scaled down to 75% of its original size. This scaled sketch is then transformed into a three-dimensional model by extruding it along its normal direction to create a solid body. The resulting shape is a cylindrical object with a flat circular top and bottom. The top surface is slightly recessed compared to the bottom. The final dimensions of the cylindrical base are approximately 0.75 units in length and width, and 0.1046 units in height.
+</level2>
+
+<level3>
+The design consists of a cylindrical base with a flat circular top and bottom. The top surface is slightly recessed compared to the bottom, giving the object a subtle, stepped appearance. The base measures about 0.75 units in diameter and 0.1046 units in height.
+</level3>","<part_1>
+### Construct a Cylindrical Base
+#### Step 1: Create a New Coordinate System
+- Set the Euler angles to [0.0, 0.0, 0.0].
+- Set the translation vector to [0.0, 0.0, 0.0].
+
+#### Step 2: Draw a 2D Sketch
+- Draw a single face.
+- Within this face, draw a single loop.
+- In the loop, draw a circle with the following parameters:
+  - Center: [0.375, 0.375]
+  - Radius: 0.375
+
+#### Step 3: Scale the 2D Sketch
+- Apply a scale factor of 0.75 to the sketch.
+
+#### Step 4: Transform the Scaled 2D Sketch into 3D
+- Rotate the sketch using the Euler angles [0.0, 0.0, 0.0].
+- Translate the sketch using the translation vector [0.0, 0.0, 0.0].
+
+#### Step 5: Extrude the 2D Sketch to Generate the 3D Model
+- Extrude the sketch towards the normal by 0.1046 units.
+- Do not extrude in the opposite direction.
+- This operation will create a new solid body.
+
+#### Part Dimensions
+- Length: 0.7499999633140781 units
+- Width: 0.7499999633140781 units
+- Height: 0.10461455694430137 units
+
+### Final Shape Description
+- The final shape is a cylindrical object with a flat circular top and bottom. The top surface is slightly recessed compared to the bottom.
+</part_1>"
+0000/00000061,"A cube with a corner cut out, resulting in a square base and a triangular top. The cut-out corner is rounded.","Design a cube with a small cutout at one corner. The cube measures 0.75 units in length and width, with a height of 0.0375 units. The cutout creates a smooth, rounded edge, giving the cube a unique and functional shape.","Start by setting up a new coordinate system with Euler angles set to zero degrees and a translation vector also set to zero. Next, draw a two-dimensional sketch on the first face. Begin with the first loop, drawing the first line from the origin (0.0, 0.0) to (0.75, 0.0). Continue by drawing the second line from (0.75, 0.0) to (0.75, 0.75). The third line should extend from (0.75, 0.75) to (0.075, 0.75). Then, draw the first arc starting at (0.075, 0.75), passing through (0.053, 0.697), and ending at (0.0, 0.675). Finally, draw the fourth line from (0.0, 0.675) back to the origin. After completing the sketch, apply a scaling factor of 0.75 to the entire sketch. Since the Euler angles and translation vector are already set to zero, no further transformation is needed. Extrude the scaled sketch 0.0375 units along the normal direction, ensuring that the extrusion does not occur in the opposite direction. Create a new solid body using the extruded sketch. The final dimensions of the part are 0.75 units in length, 0.75 units in width, and 0.0375 units in height.","A cube with a corner cut out, resulting in a square base and a triangular top. The cut-out corner is rounded.","['Cube', 'corner cut', 'rounded', 'square base', 'triangular top']","Create a new coordinate system with default settings. Draw a two-dimensional sketch on the first face, forming a rectangular shape with a small cutout at one corner. The main body of the sketch is a rectangle, and a smaller section is removed from one corner, creating a smooth transition with an arc. Scale the entire sketch to reduce its size. Transform the scaled sketch into a three-dimensional object by extruding it along the normal direction. The final part has a length of 0.75 units, a width of 0.75 units, and a height of 0.0375 units. This forms a cube with a corner cut out, integrating seamlessly into the final design.","<level1>
+Start by setting up a new coordinate system with Euler angles set to zero degrees and a translation vector also set to zero. Next, draw a two-dimensional sketch on the first face. Begin with the first loop, drawing the first line from the origin (0.0, 0.0) to (0.75, 0.0). Continue by drawing the second line from (0.75, 0.0) to (0.75, 0.75). The third line should extend from (0.75, 0.75) to (0.075, 0.75). Then, draw the first arc starting at (0.075, 0.75), passing through (0.053, 0.697), and ending at (0.0, 0.675). Finally, draw the fourth line from (0.0, 0.675) back to the origin. After completing the sketch, apply a scaling factor of 0.75 to the entire sketch. Since the Euler angles and translation vector are already set to zero, no further transformation is needed. Extrude the scaled sketch 0.0375 units along the normal direction, ensuring that the extrusion does not occur in the opposite direction. Create a new solid body using the extruded sketch. The final dimensions of the part are 0.75 units in length, 0.75 units in width, and 0.0375 units in height.
+</level1>
+
+<level2>
+Create a new coordinate system with default settings. Draw a two-dimensional sketch on the first face, forming a rectangular shape with a small cutout at one corner. The main body of the sketch is a rectangle, and a smaller section is removed from one corner, creating a smooth transition with an arc. Scale the entire sketch to reduce its size. Transform the scaled sketch into a three-dimensional object by extruding it along the normal direction. The final part has a length of 0.75 units, a width of 0.75 units, and a height of 0.0375 units. This forms a cube with a corner cut out, integrating seamlessly into the final design.
+</level2>
+
+<level3>
+Design a cube with a small cutout at one corner. The cube measures 0.75 units in length and width, with a height of 0.0375 units. The cutout creates a smooth, rounded edge, giving the cube a unique and functional shape.
+</level3>","<part_1>
+### Construct a Cube with a Corner Cut Out
+
+#### Step 1: Create a New Coordinate System
+- Set the Euler Angles to [0.0, 0.0, 0.0].
+- Set the Translation Vector to [0.0, 0.0, 0.0].
+
+#### Step 2: Draw a 2D Sketch
+- **Face 1:**
+  - **Loop 1:**
+    - **Line 1:** Draw a line from (0.0, 0.0) to (0.75, 0.0).
+    - **Line 2:** Draw a line from (0.75, 0.0) to (0.75, 0.75).
+    - **Line 3:** Draw a line from (0.75, 0.75) to (0.075, 0.75).
+    - **Arc 1:** Draw an arc starting at (0.075, 0.75), passing through (0.053, 0.697), and ending at (0.0, 0.675).
+    - **Line 4:** Draw a line from (0.0, 0.675) to (0.0, 0.0).
+
+#### Step 3: Scale the 2D Sketch
+- Apply a scaling factor of 0.75 to the entire sketch.
+
+#### Step 4: Transform the Scaled 2D Sketch into 3D
+- No additional transformation is required as the Euler Angles and Translation Vector are set to zero.
+
+#### Step 5: Extrude the 2D Sketch
+- Extrude the sketch 0.0375 units along the normal direction.
+- Do not extrude in the opposite direction.
+
+#### Step 6: Integrate the Part
+- Create a new solid body using the extruded sketch.
+
+#### Final Dimensions
+- Length: 0.75 units
+- Width: 0.75 units
+- Height: 0.0375 units
+</part_1>"
