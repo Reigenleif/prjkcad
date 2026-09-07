@@ -6,6 +6,7 @@ import numpy as np
 from utils.dual_seq import DualSeq, get_dualseq_schema
 from utils.representations.dual_seq.dual_seq import DEFAULT_COMMANDS
 from utils.representations.CadSeqProc.cad_sequence import CADSequence
+from utils.representations.converter import dualseq_to_minimal_json, dualseq_to_cadseq, vec_2t_to_cadseq
 from utils.render import render_dual_seq_to_shape
 
 from utils.evaluate.eval.cmds import (
@@ -30,6 +31,7 @@ from utils.evaluate.render.chamfer_distance import (
     eval_reconstruction,
 )
 from utils.evaluate.t2c.t2c_report import eval_t2c_report
+from utils.grpo.reward import decode_dualseq_from_tokens
 
 
 def get_canonical_evaluation_dict() -> Dict[str, float]:
@@ -117,94 +119,7 @@ def get_canonical_evaluation_dict() -> Dict[str, float]:
     }
 
 
-def dualseq_to_minimal_json(ds: Any, args_list: Optional[List[Dict[str, Any]]] = None) -> dict:
-    if hasattr(ds, "json_object") and isinstance(ds.json_object, dict) and "parts" in ds.json_object:
-        return ds.json_object
 
-    if isinstance(ds, DualSeq):
-        cmds = getattr(ds, "cmds", [])
-        args_list = getattr(ds, "args_dict", [])
-    else:
-        cmds = ds if isinstance(ds, list) else []
-        args_list = args_list if isinstance(args_list, list) else []
-
-    parts = {}
-    part_idx, face_idx, loop_idx, seg_idx = 0, 0, 0, 0
-    curr_part, curr_face, curr_loop = None, None, None
-    op_map = {
-        "EXTRUDE_NEW": "NewBodyFeatureOperation",
-        "EXTRUDE_JOIN": "JoinFeatureOperation",
-        "EXTRUDE_CUT": "CutFeatureOperation",
-        "EXTRUDE_INTERSECT": "IntersectFeatureOperation",
-    }
-
-    for cmd, arg in zip(cmds, args_list):
-        if not isinstance(arg, dict):
-            arg = {}
-        if cmd == "COOR":
-            part_idx += 1
-            curr_part = {
-                "coordinate_system": {
-                    "Euler Angles": [arg.get("coor_euax", 0.0), arg.get("coor_euay", 0.0), arg.get("coor_euaz", 0.0)],
-                    "Translation Vector": [arg.get("coor_tx", 0.0), arg.get("coor_ty", 0.0), arg.get("coor_tz", 0.0)],
-                },
-                "sketch": {},
-                "extrusion": {
-                    "operation": "NewBodyFeatureOperation",
-                    "extrude_depth_towards_normal": 0.0,
-                    "extrude_depth_opposite_normal": 0.0,
-                    "sketch_scale": 1.0,
-                },
-            }
-            parts[f"part_{part_idx}"] = curr_part
-            face_idx, loop_idx, seg_idx = 0, 0, 0
-        elif cmd == "FACE" and curr_part is not None:
-            face_idx += 1
-            curr_face = {}
-            curr_part["sketch"][f"face_{face_idx}"] = curr_face
-            loop_idx, seg_idx = 0, 0
-        elif cmd == "LOOP" and curr_face is not None:
-            loop_idx += 1
-            curr_loop = {}
-            curr_face[f"loop_{loop_idx}"] = curr_loop
-            seg_idx = 0
-        elif cmd == "LINE" and curr_loop is not None:
-            seg_idx += 1
-            curr_loop[f"line_{seg_idx}"] = {
-                "Start Point": [arg.get("line_sx", 0.0), arg.get("line_sy", 0.0)],
-                "End Point": [arg.get("line_ex", 0.0), arg.get("line_ey", 0.0)],
-            }
-        elif cmd == "CIRCLE" and curr_loop is not None:
-            seg_idx += 1
-            curr_loop[f"circle_{seg_idx}"] = {
-                "Center": [arg.get("circle_cx", 0.0), arg.get("circle_cy", 0.0)],
-                "Radius": arg.get("circle_r", 0.0),
-            }
-        elif cmd == "ARC" and curr_loop is not None:
-            seg_idx += 1
-            curr_loop[f"arc_{seg_idx}"] = {
-                "Start Point": [arg.get("arc_sx", 0.0), arg.get("arc_sy", 0.0)],
-                "Mid Point": [arg.get("arc_mx", 0.0), arg.get("arc_my", 0.0)],
-                "End Point": [arg.get("arc_ex", 0.0), arg.get("arc_ey", 0.0)],
-            }
-        elif cmd in op_map and curr_part is not None:
-            prefix = cmd.lower()
-            curr_part["extrusion"] = {
-                "operation": op_map[cmd],
-                "extrude_depth_towards_normal": arg.get(f"{prefix}_dtn", 0.0),
-                "extrude_depth_opposite_normal": arg.get(f"{prefix}_don", 0.0),
-                "sketch_scale": arg.get(f"{prefix}_scale", 1.0),
-            }
-
-    return {"parts": parts}
-
-
-def dualseq_to_cadseq(ds: Any, args_list: Optional[List[Dict[str, Any]]] = None) -> Optional[CADSequence]:
-    try:
-        minimal_json = dualseq_to_minimal_json(ds, args_list=args_list)
-        return CADSequence.from_minimal_json(minimal_json)
-    except Exception:
-        return None
 
 
 # ── Object Representation Evaluators ───────────────────────────────────────
@@ -260,6 +175,17 @@ def eval_eight_bit_binarized_args(pred_cmds: List[str], gt_cmds: List[str], pred
     schema = schema or get_dualseq_schema()
     arg_m = eval_binarized_args_metrics(pred_args, gt_args, schema=schema, metadata=metadata)
     metrics.update(arg_m)
+
+    try:
+        gt_ds = decode_dualseq_from_tokens(gt_cmds, gt_args, schema, metadata=metadata)
+        pred_ds = decode_dualseq_from_tokens(pred_cmds, pred_args, schema, metadata=metadata)
+        gt_cad = dualseq_to_cadseq(gt_ds)
+        pred_cad = dualseq_to_cadseq(pred_ds)
+        if gt_cad is not None and pred_cad is not None:
+            t2c_m = eval_t2c_report(gt_cad, pred_cad)
+            metrics.update(t2c_m)
+    except Exception:
+        pass
 
     return metrics
 
@@ -333,7 +259,7 @@ def eval_batch(
 
         if out_type in ["FloatArgs", "float_args"]:
             m = eval_float_args(pred_cmds, true_cmds, p_a, g_a, schema=schema, metadata=metadata)
-        elif out_type in ["EightBitBinarizedArgs", "eight_bit"]:
+        elif out_type in ["EightBitBinarizedArgs", "eight_bit", "grpo", "GRPO", "GRPOWrapper"]:
             m = eval_eight_bit_binarized_args(pred_cmds, true_cmds, p_a, g_a, schema=schema, metadata=metadata)
         elif out_type in ["TokenizedOneSequenceArgs", "tokenized"]:
             m = eval_tokenized_one_sequence_args(pred_cmds, true_cmds, p_a, g_a, schema=schema, metadata=metadata)
