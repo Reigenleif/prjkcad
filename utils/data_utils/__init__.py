@@ -1,7 +1,7 @@
 from .cmdonly_dataset import create_cmdonly_data_loader, DualSeqCmdonlyDataset
 from .dualseq_dataset import create_dualseq_data_loader, DualSeqDataset
 from .pretrain_dataset import create_pretrain_data_loader, PretrainDataset
-from .ref_loader import RefLoader, load_split_data
+from .ref_loader import RefLoader, load_split_data, load_val_data, load_test_data
 from .coreset import CoresetCreator
 
 __all__ = [
@@ -13,7 +13,9 @@ __all__ = [
     "PretrainDataset",
     "RefLoader",
     "CoresetCreator",
-    "load_split_data"
+    "load_split_data",
+    "load_val_data",
+    "load_test_data",
 ]
 
 

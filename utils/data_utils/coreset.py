@@ -42,11 +42,12 @@ class CoresetCreator:
             random_seed: Random seed for KMeans clustering.
         """
         if dual_seqs is None:
-            if data_root is None:
-                raise ValueError("Either dual_seqs or data_root must be provided.")
-            from .ref_loader import RefLoader
-            loader = RefLoader(data_root=data_root, source_data_type=source_data_type)
-            self.ref_loader = loader
+            if data_root is not None:
+                from .ref_loader import RefLoader
+                loader = RefLoader(data_root=data_root, source_data_type=source_data_type)
+                self.ref_loader = loader
+            else:
+                self.ref_loader = None
 
 
         

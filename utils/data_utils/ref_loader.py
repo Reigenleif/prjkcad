@@ -1,11 +1,13 @@
-from __future__ import annotations
-
+import gc
 import json
+import os
+import random
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 from tqdm import tqdm
+from utils.representations.dual_seq.dual_seq import DualSeq
 
 
 class RefLoader:
@@ -137,11 +139,11 @@ def load_split_data(
     split_json: str | None = None,
     max_samples: int | None = None,
     sample_ratio: float | None = None,
+    val_max_sample: int | None = None,
+    val_sample_ratio: float | None = None,
+    random_train: bool = False,
+    seed: int = 42,
 ) -> tuple[list[DualSeq], list[DualSeq] | None]:
-    import os
-    import random
-    from ..dual_seq import DualSeq
-    
     if split_json and os.path.exists(split_json):
         print(f"Loading split from JSON: {split_json}")
         with open(split_json, "r") as f:
@@ -161,23 +163,34 @@ def load_split_data(
         df_train = df_all[df_all["normalized_uid"].isin(train_uids)]
         df_val = df_all[df_all["normalized_uid"].isin(val_uids)]
         
-        if max_samples is not None:
+        if sample_ratio and sample_ratio < 1.0:
+            sample_size = int(len(df_train) * sample_ratio)
+            df_train = df_train.sample(n=sample_size, random_state=seed)
+            
+        v_ratio = val_sample_ratio if val_sample_ratio is not None else (sample_ratio if sample_ratio and sample_ratio < 1.0 else None)
+        if v_ratio is not None and v_ratio == 0.0:
+            df_val = df_val.head(0)
+        elif v_ratio and v_ratio < 1.0:
+            val_sample_size = int(len(df_val) * v_ratio)
+            df_val = df_val.sample(n=val_sample_size, random_state=seed)
+            
+        if random_train and max_samples is not None and len(df_train) > max_samples:
+            df_train = df_train.sample(n=max_samples, random_state=seed).reset_index(drop=True)
+        elif max_samples is not None:
             df_train = df_train.head(max_samples)
-            df_val = df_val.head(max_samples)
+            
+        v_max = val_max_sample 
+        if v_max is not None:
+            df_val = df_val.head(v_max)
             
         df_train_loaded = loader.load_jsons(df=df_train)
-        df_val_loaded = loader.load_jsons(df=df_val)
+        df_val_loaded = loader.load_jsons(df=df_val) if not df_val.empty else pd.DataFrame()
         
         dual_seqs = DualSeq.from_text2cad_df(df_train_loaded)
-        val_dual_seqs = DualSeq.from_text2cad_df(df_val_loaded)
-        
-        if sample_ratio and sample_ratio < 1.0:
-            sample_size = int(len(dual_seqs) * sample_ratio)
-            dual_seqs = random.sample(dual_seqs, sample_size)
+        val_dual_seqs = DualSeq.from_text2cad_df(df_val_loaded) if not df_val_loaded.empty else None
             
-            val_sample_size = int(len(val_dual_seqs) * sample_ratio)
-            val_dual_seqs = random.sample(val_dual_seqs, val_sample_size)
-            
+        del df_all, df_train, df_val, df_train_loaded, df_val_loaded
+        gc.collect()
         return dual_seqs, val_dual_seqs
     else:
         loader = RefLoader(
@@ -194,3 +207,70 @@ def load_split_data(
             dual_seqs = random.sample(dual_seqs, sample_size)
             
         return dual_seqs, None
+
+
+def load_val_data(
+    data_folder: str,
+    metadata_csv: str,
+    source_data_type: str = "text2cad",
+    split_json: str | None = None,
+    val_max_sample: int | None = None,
+) -> list[DualSeq]:
+    """Load only validation split sequence data."""
+    if split_json and os.path.exists(split_json):
+        with open(split_json, "r") as f:
+            splits = json.load(f)
+        val_uids = set(splits.get("validation", []))
+
+        loader = RefLoader(
+            data_folder,
+            csv_path=metadata_csv,
+            max_samples=None,
+            source_data_type=source_data_type
+        )
+        df_all = loader.load_csv()
+        df_all["normalized_uid"] = df_all["uid"].apply(loader._normalize_uid)
+        df_val = df_all[df_all["normalized_uid"].isin(val_uids)]
+
+        if val_max_sample is not None:
+            df_val = df_val.head(val_max_sample)
+
+        df_val_loaded = loader.load_jsons(df=df_val)
+        return DualSeq.from_text2cad_df(df_val_loaded)
+    return []
+
+
+def load_test_data(
+    data_folder: str,
+    metadata_csv: str,
+    source_data_type: str = "text2cad",
+    split_json: str | None = None,
+    test_max_sample: int | None = None,
+    test_sample_ratio: float | None = None,
+) -> list[DualSeq]:
+    """Load only test split sequence data."""
+    if split_json and os.path.exists(split_json):
+        with open(split_json, "r") as f:
+            splits = json.load(f)
+        test_uids = set(splits.get("test", []))
+
+        loader = RefLoader(
+            data_folder,
+            csv_path=metadata_csv,
+            max_samples=None,
+            source_data_type=source_data_type
+        )
+        df_all = loader.load_csv()
+        df_all["normalized_uid"] = df_all["uid"].apply(loader._normalize_uid)
+        df_test = df_all[df_all["normalized_uid"].isin(test_uids)]
+
+        if test_sample_ratio and test_sample_ratio < 1.0:
+            test_sample_size = int(len(df_test) * test_sample_ratio)
+            df_test = df_test.sample(n=test_sample_size, random_state=42)
+
+        if test_max_sample is not None:
+            df_test = df_test.head(test_max_sample)
+
+        df_test_loaded = loader.load_jsons(df=df_test)
+        return DualSeq.from_text2cad_df(df_test_loaded)
+    return []
