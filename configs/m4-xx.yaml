@@ -1,16 +1,17 @@
-run_name: ft_eightbitbin_fuse
-type: fine_tune
+run_name: m4-xx
+type: grpo
 data:
   data_folder: data/text2cad
   metadata_csv: data/text2cad/text2cad_v1.1.csv
   split_json: data/text2cad/train_test_val.json
   source_data_type: text2cad
   is_cmdonly: false
-  sample_ratio: 1
+  sample_ratio: 1.0
   eval_split_ratio: 0.1
+  val_sample_ratio: 0.1
   num_workers: 4
   description_level: expert
-  batch_size: 8
+  batch_size: 4
   max_samples: null
 tokenizer:
   source: huggingface
@@ -20,6 +21,7 @@ model:
   encoder_type: bert
   cmd_decoder_type: sdpa
   is_cmd_only: false
+  out_type: EightBitBinarizedArgs
   args_decoder_type: sdpa
   d_model: 512
   max_new_cmds: 128
@@ -27,36 +29,39 @@ model:
   adaptive_layer: sdpa
   cmd_embedding_type: rope_sdpa
   args_embedding_type: rope_sdpa
-  use_drop_out: true
-  drop_out_p: 0.1
+  use_drop_out: false
+  drop_out_p: 0.0
   freeze_encoder: true
-  out_type: EightBitBinarizedArgs
   use_cmd_args_fusion: true
   n_dec_blocks: 6
 trainer:
   optimizer: AdamW
   optimizer_kwargs:
-    lr: 3.0e-04
+    lr: 5.0e-06
     weight_decay: 0.01
-    betas: [0.9, 0.98]
   criterion:
     source: local
     cls: EightBitBinarizedArgsCriterion
     kwargs:
       lambda_args: 1.0
-      label_smoothing: 0.1
-      eos_weight: 10.0
-      lambda_structural: 0.1
-  epochs: 45
-  max_new_cmds: 128
-  eval_steps: 100000
-  scheduler:
-    type: cosine
-    warmup_ratio: 0.05
-    eta_min: 0.01
+  epochs: 2
+  max_new_cmds: 84
+  eval_steps: 5000
+  scheduler: null
   kwargs:
-    teacher_forcing_ratio: 1.0
     max_grad_norm: 1.0
     quant_type: fp16
+    device: cuda
+grpo:
+  n_rollouts: 4
+  clip_eps: 0.2
+  min_cd: 1.0e-5
+  max_cd: 0.5
+  subset_top_p: 0.1
+  temperature: 1.0
+  ref_sync_every: 50
+  kl_coef: 0.01
+pretrained_path: out/m3-xx/checkpoint.ckpt
 random_seed: 42
 use_wandb: true
+

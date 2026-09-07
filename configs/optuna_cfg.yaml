@@ -10,7 +10,13 @@ data:
   num_workers: 4
   description_level: expert
   batch_size: 16
-  max_samples: 100000
+  max_samples: null
+  coreset_kwargs:
+    p: 0.01
+    k: 100
+    description_level: expert
+    model_name: bert-base-uncased
+    selection_method: closest
 tokenizer:
   source: huggingface
   model_name: bert-base-uncased
@@ -40,9 +46,9 @@ trainer:
     kwargs:
       lambda_after_pad: 3
       lambda_overgen: 3
-  epochs: 100
+  epochs: 50
   max_new_cmds: 128
-  eval_steps: 1000
+  eval_steps: 100
   scheduler:
     warmup_ratio: 0.05
   kwargs:
@@ -51,3 +57,4 @@ trainer:
     quant_type: fp16
 pretrained_path: null 
 random_seed: 42
+use_wandb: false

@@ -1,16 +1,17 @@
-run_name: grpo_eightbitbin_fuse
-type: grpo
+run_name: m3-xx
+type: fine_tune
 data:
   data_folder: data/text2cad
   metadata_csv: data/text2cad/text2cad_v1.1.csv
   split_json: data/text2cad/train_test_val.json
   source_data_type: text2cad
   is_cmdonly: false
-  sample_ratio: 1.0
+  sample_ratio: 1
+  val_sample_ratio: 0.1
   eval_split_ratio: 0.1
   num_workers: 4
   description_level: expert
-  batch_size: 4
+  batch_size: 8
   max_samples: null
 tokenizer:
   source: huggingface
@@ -20,7 +21,6 @@ model:
   encoder_type: bert
   cmd_decoder_type: sdpa
   is_cmd_only: false
-  out_type: EightBitBinarizedArgs
   args_decoder_type: sdpa
   d_model: 512
   max_new_cmds: 128
@@ -28,34 +28,37 @@ model:
   adaptive_layer: sdpa
   cmd_embedding_type: rope_sdpa
   args_embedding_type: rope_sdpa
-  use_drop_out: false
-  drop_out_p: 0.0
+  use_drop_out: true
+  drop_out_p: 0.5
   freeze_encoder: true
+  out_type: EightBitBinarizedArgs
   use_cmd_args_fusion: true
   n_dec_blocks: 6
 trainer:
   optimizer: AdamW
   optimizer_kwargs:
-    lr: 5.0e-06
+    lr: 3.0e-04
     weight_decay: 0.01
+    betas: [0.9, 0.98]
   criterion:
     source: local
     cls: EightBitBinarizedArgsCriterion
     kwargs:
       lambda_args: 1.0
-  epochs: 15
+      label_smoothing: 0.0
+      eos_weight: 5.0
+      lambda_structural: 0.1
+  epochs: 20
   max_new_cmds: 128
-  eval_steps: 2000
-  scheduler: null
+  eval_steps: 20000
+  scheduler:
+    type: cosine
+    warmup_ratio: 0.05
+    eta_min: 0.01
   kwargs:
+    teacher_forcing_ratio: 1.0
     max_grad_norm: 1.0
-    device: cuda
-grpo:
-  n_rollouts: 2
-  clip_eps: 0.2
-  min_cd: 1.0e-5
-  max_cd: 0.5
-  eval_fraction: 0.1
-  temperature: 1.0
-pretrained_path: out/ft_eightbitbin_fuse/checkpoint.pt
+    quant_type: fp16
 random_seed: 42
+pretrained_path: out/m3-xx/checkpoint.pt
+use_wandb: true

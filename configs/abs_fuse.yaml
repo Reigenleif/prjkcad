@@ -1,21 +1,23 @@
-run_name: sanity_a
+run_name: m3-abs
+type: fine_tune
 data:
   data_folder: data/text2cad
   metadata_csv: data/text2cad/text2cad_v1.1.csv
   split_json: data/text2cad/train_test_val.json
   source_data_type: text2cad
   is_cmdonly: false
-  sample_ratio: 1.0
-  eval_split_ratio: 0.2
+  sample_ratio: 1
+  val_sample_ratio: 0.1
+  eval_split_ratio: 0.1
   num_workers: 4
-  description_level: expert
-  batch_size: 4
-  max_samples: 16
+  description_level: abstract
+  batch_size: 8
+  max_samples: null
 tokenizer:
   source: huggingface
   model_name: bert-base-uncased
 model:
-  is_pretrained: false
+  is_pretrained: true
   encoder_type: bert
   cmd_decoder_type: sdpa
   is_cmd_only: false
@@ -27,25 +29,35 @@ model:
   cmd_embedding_type: rope_sdpa
   args_embedding_type: rope_sdpa
   use_drop_out: true
-  drop_out_p: 0.3
+  drop_out_p: 0.5
   freeze_encoder: true
+  out_type: EightBitBinarizedArgs
+  use_cmd_args_fusion: true
+  n_dec_blocks: 6
 trainer:
   optimizer: AdamW
   optimizer_kwargs:
-    lr: 1.0e-04
+    lr: 3.0e-04
     weight_decay: 0.01
+    betas: [0.9, 0.98]
   criterion:
     source: local
-    cls: DualSeqCriterion
+    cls: EightBitBinarizedArgsCriterion
     kwargs:
-      lambda_after_pad: 3
-      lambda_overgen: 3
-  epochs: 2
+      lambda_args: 1.0
+      label_smoothing: 0.0
+      eos_weight: 5.0
+      lambda_structural: 0.1
+  epochs: 20
   max_new_cmds: 128
+  eval_steps: 15000
+  scheduler:
+    type: cosine
+    warmup_ratio: 0.05
+    eta_min: 0.01
   kwargs:
     teacher_forcing_ratio: 1.0
     max_grad_norm: 1.0
-  eval_steps: 2
-  scheduler: null
-pretrained_path: null
+    quant_type: fp16
 random_seed: 42
+use_wandb: true
