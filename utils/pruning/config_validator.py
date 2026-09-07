@@ -83,4 +83,13 @@ def is_valid_config(cfg: ModelConfig) -> bool:
     if use_drop_out and not (0.0 < drop_out_p < 1.0):
         return False
 
+    use_cmd_args_fusion = getattr(cfg, "use_cmd_args_fusion", False)
+    if not isinstance(use_cmd_args_fusion, bool):
+        return False
+
+    n_dec_blocks = getattr(cfg, "n_dec_blocks", None)
+    if n_dec_blocks is not None and (not isinstance(n_dec_blocks, int) or n_dec_blocks <= 0):
+        return False
+
     return True
+
