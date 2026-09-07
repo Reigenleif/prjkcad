@@ -21,3 +21,5 @@ wandb/
 lightning_logs/
 
 cache/
+
+gui/assets/
