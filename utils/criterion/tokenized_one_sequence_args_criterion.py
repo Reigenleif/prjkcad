@@ -46,6 +46,11 @@ class TokenizedOneSequenceArgsCriterion(BaseCriterion):
             cmd_targets = args[0] if args else None
             arg_targets = args[1] if len(args) > 1 else None
 
+        if cmd_targets is not None:
+            cmd_targets = cmd_targets.to(cmd_logits.device)
+        if arg_targets is not None:
+            arg_targets = arg_targets.to(arg_logits.device)
+
         # <-- Command Loss Calculation -->
         B, T_cmd_pred, V_cmd = cmd_logits.shape
         T_cmd = min(T_cmd_pred, cmd_targets.size(1))

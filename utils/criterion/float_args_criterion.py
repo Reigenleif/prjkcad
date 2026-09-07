@@ -42,6 +42,11 @@ class FloatArgsCriterion(BaseCriterion):
             cmd_targets = batch.get("cmd_targets", batch.get("y", {}).get("cmd_targets"))
             arg_targets = batch.get("arg_targets", batch.get("y", {}).get("arg_targets"))
 
+        if cmd_targets is not None:
+            cmd_targets = cmd_targets.to(cmd_logits.device)
+        if arg_targets is not None:
+            arg_targets = arg_targets.to(arg_preds.device)
+
         # <-- Command Loss Calculation -->
         B, T_cmd_pred, V_cmd = cmd_logits.shape
         T_cmd_tgt = cmd_targets.size(1)
