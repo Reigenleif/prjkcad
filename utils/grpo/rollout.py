@@ -101,7 +101,12 @@ def generate_rollouts_tokenized(
 
         lp_arg_dist = F.log_softmax(next_arg_logits, dim=-1) # (N, 31, 257)
         gathered_lp_arg = lp_arg_dist.gather(2, next_arg.transpose(1, 2)).squeeze(2) # (N, 31)
-        lp_arg = gathered_lp_arg.sum(dim=-1, keepdim=True) # (N, 1)
+        lp_arg = gathered_lp_arg.mean(dim=-1, keepdim=True) # (N, 1) — mean to match loss.py
+
+        # Mask unused arg slots for the predicted command
+        slot_mask = wrapper.slot_mask.to(device)
+        active_slots = slot_mask[next_cmd.squeeze(-1)].unsqueeze(1)  # (N, 1, 31)
+        next_arg = torch.where(active_slots, next_arg, torch.full_like(next_arg, model.arg_pad_id))
 
         # Mask finished sequences
         next_cmd = next_cmd.masked_fill(finished.unsqueeze(1), model.pad_id)
