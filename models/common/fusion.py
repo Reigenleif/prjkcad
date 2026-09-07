@@ -30,8 +30,9 @@ class CmdArgsFusion(nn.Module):
 
 
 class FusionBlock(nn.Module):
-    def __init__(self, d_model: int, n_heads: int = 8, dim_feedforward: Optional[int] = None, dropout: float = 0.1):
+    def __init__(self, d_model: int, n_heads: int = 8, dim_feedforward: Optional[int] = None, dropout: float = 0.1, use_cmd_args_fusion: bool = True):
         super().__init__()
+        self.use_cmd_args_fusion = use_cmd_args_fusion
         dim_feedforward = dim_feedforward or (4 * d_model) # Defauolt to 4xd_model instead 
         head_dim = d_model // n_heads
 
@@ -40,10 +41,11 @@ class FusionBlock(nn.Module):
         self.norm_self_cmd = nn.LayerNorm(d_model)
         self.norm_self_arg = nn.LayerNorm(d_model)
 
-        self.cmd_args_attn = SDPAttention(d_model, n_heads, head_dim, dropout_p=dropout)
-        self.arg_cmd_attn = SDPAttention(d_model, n_heads, head_dim, dropout_p=dropout)
-        self.norm_cross_cmd = nn.LayerNorm(d_model)
-        self.norm_cross_arg = nn.LayerNorm(d_model)
+        if self.use_cmd_args_fusion:
+            self.cmd_args_attn = SDPAttention(d_model, n_heads, head_dim, dropout_p=dropout)
+            self.arg_cmd_attn = SDPAttention(d_model, n_heads, head_dim, dropout_p=dropout)
+            self.norm_cross_cmd = nn.LayerNorm(d_model)
+            self.norm_cross_arg = nn.LayerNorm(d_model)
 
         self.cmd_enc_attn = SDPAttention(d_model, n_heads, head_dim, dropout_p=dropout)
         self.arg_enc_attn = SDPAttention(d_model, n_heads, head_dim, dropout_p=dropout)
@@ -85,7 +87,7 @@ class FusionBlock(nn.Module):
             arg_self = self.arg_self_attn(arg_h, arg_h, arg_h, attn_mask=arg_self_mask, is_causal=(arg_self_mask is None))
             arg_h = self.norm_self_arg(arg_h + self.dropout(arg_self))
 
-        if arg_h is not None:
+        if arg_h is not None and self.use_cmd_args_fusion:
             cmd_cross = self.cmd_args_attn(cmd_h, arg_h, arg_h, attn_mask=cmd_args_mask)
             arg_cross = self.arg_cmd_attn(arg_h, cmd_h, cmd_h, attn_mask=arg_cmd_mask)
             cmd_h = self.norm_cross_cmd(cmd_h + self.dropout(cmd_cross))
@@ -110,10 +112,14 @@ class FusionBlock(nn.Module):
 
 
 class FusionStack(nn.Module):
-    def __init__(self, d_model: int, n_dec_blocks: int = 6, n_heads: int = 8, dim_feedforward: int = 768, dropout: float = 0.1):
+    def __init__(self, d_model: int, n_dec_blocks: int = 6, n_heads: int = 8, dim_feedforward: int = 768, dropout: float = 0.1, use_cmd_args_fusion: bool = True):
         super().__init__()
         self.blocks = nn.ModuleList([
-            FusionBlock(d_model=d_model, n_heads=n_heads, dim_feedforward=dim_feedforward, dropout=dropout)
+            FusionBlock(d_model=d_model, 
+                        n_heads=n_heads, 
+                        dim_feedforward=dim_feedforward, 
+                        dropout=dropout, 
+                        use_cmd_args_fusion=use_cmd_args_fusion)
             for _ in range(n_dec_blocks)
         ])
 

@@ -54,6 +54,7 @@ class BaseModel(nn.Module):
         self.max_new_args = cfg.max_new_args or cfg.max_new_cmds
 
         self.n_dec_blocks = getattr(cfg, "n_dec_blocks", 6)
+        self.use_cmd_args_fusion = getattr(cfg, "use_cmd_args_fusion", True)
         dropout = cfg.drop_out_p if cfg.use_drop_out else 0.1
 
         self._init_encoder()
@@ -64,6 +65,7 @@ class BaseModel(nn.Module):
             d_model=self.d_model,
             n_dec_blocks=self.n_dec_blocks,
             dropout=dropout,
+            use_cmd_args_fusion=self.use_cmd_args_fusion,
         )
 
     # ── Encoder ──────────────────────────────────────────────────────────

@@ -127,13 +127,15 @@ class CADDecoder(nn.Module):
         )  # (B,N1,cdim)
         # Pass through Decoder Layers
         for i in range(self.num_layers):
-            S, self.attention_scores[f"block_level_{i}"] = self.cad_decoder_layers[i](
+            S, blk_attn = self.cad_decoder_layers[i](
                 S,
                 ZE=ZE,
                 mask_cad_dict=mask_cad_dict,
                 cross_attn_mask_dict=cross_attn_mask_dict,
                 metadata=metadata,
             )
+            if metadata:
+                self.attention_scores[f"block_level_{i}"] = blk_attn
         Sx = self.seq_output_x(S).unsqueeze(dim=2)  # (B,1,N1,one_hot_size)
         Sy = self.seq_output_y(S).unsqueeze(dim=2)  # (B,N1,1,one_hot_size)
 
@@ -411,15 +413,18 @@ class CADDecoderLayer(nn.Module):
             # ? <----------  (CROSS-ATTENDED FEATURES + SELF-ATTENDED FEATURES) + DROPOUT + NORMALIZATION LAYER  ---------->
             S = S + self.dp_seq["dropout_2"](S3)
             S2 = self.norm_seq["norm_3"](S)  # (bs,num_seq,emb_dim)
-            self.attention_scores["ca"] = ZE_S_score
+            if metadata:
+                self.attention_scores["ca"] = ZE_S_score
 
         # ? <---------- FEED-FORWARD + DROPOUT + ADDITION +    ---------->
         S = S + self.dp_seq["dropout_3"](self.ffl_seq(S2))
 
         # Add the cross attention scores (metadata)
-        self.attention_scores["sa"] = S_score
+        if metadata:
+            self.attention_scores["sa"] = S_score
+            return S, self.attention_scores
 
-        return S, self.attention_scores
+        return S, None
 
 
 if __name__ == "__main__":
