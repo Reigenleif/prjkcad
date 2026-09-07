@@ -1,182 +1,172 @@
-import os
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional, Tuple, Union
+import numpy as np
 import torch
-from typing import Any, Tuple
 from transformers.tokenization_utils_base import PreTrainedTokenizerBase
-from utils.dual_seq import get_dualseq_schema, DualSeq
 
-class Text2CADWrapper(torch.nn.Module):
-    def __init__(self, 
-                 model: torch.nn.Module,
-                 text_tokenizer: PreTrainedTokenizerBase,
-                 device=None
+from utils.dual_seq import DualSeq
+from utils.representations.CadSeqProc.cad_sequence import CADSequence
+from utils.representations.CadSeqProc.utility.macro import END_TOKEN, MAX_CAD_SEQUENCE_LENGTH, N_BIT
+from utils.representations.CadSeqProc.utility.utils import generate_attention_mask
+from utils.representations.converter import cadseq_to_vec_2t, dualseq_to_cadseq, vec_2t_to_cadseq
+from utils.wrapper.base_wrapper import BaseWrapper
+
+
+class Text2CADWrapper(BaseWrapper):
+    """Wrapper for Text2CAD model supporting training pipeline and CADSequence vector outputs."""
+
+    def __init__(
+        self,
+        model: torch.nn.Module,
+        text_tokenizer: PreTrainedTokenizerBase,
+        device: Union[str, torch.device] = "cuda" if torch.cuda.is_available() else "cpu",
+        **kwargs,
     ):
-        super().__init__()
-        self.device = device if device is not None else ("cuda" if torch.cuda.is_available() else "cpu")
+        super().__init__(model, text_tokenizer, device)
         self.model = model.to(self.device)
-        self.text_tokenizer = text_tokenizer
-        self.vocab_size_cmd = model.vocab_size
-        self.vocab_size_args = model.vocab_size_args
-        self.max_new_cmds = getattr(model, "max_new_cmds", 1024)
-        self.max_new_args = getattr(model, "max_new_args", 1024)
-        self.schema = get_dualseq_schema()
+        self.out_type = "Text2CAD"
 
-    def forward(self, batch: Tuple, is_teacher_forcing: bool = True):
-        input_ids, cmd_targets, arg_targets, attention_mask = batch
-        device = input_ids.device
-        B = input_ids.size(0)
+    def extract_inputs(self, batch: Union[Dict[str, Any], Tuple]) -> Tuple[torch.Tensor, torch.Tensor, Any, Any]:
+        device = next(self.model.parameters()).device
+        _to_dev = lambda t: t.to(device) if isinstance(t, torch.Tensor) else t
 
-        _, enc_out = self.model(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-        )
+        if isinstance(batch, dict):
+            input_ids = batch.get("input_ids", batch.get("x"))
+            attn_mask = batch.get("attention_mask", batch.get("attn_mask"))
+            cad_targets = batch.get("cad_targets", batch.get("target", batch.get("decoder_input_ids")))
+            return _to_dev(input_ids), _to_dev(attn_mask), _to_dev(cad_targets), None
 
-        if is_teacher_forcing:
-            T_cmd = cmd_targets.size(1)
-            T_arg = arg_targets.size(1)
-            T_max = max(T_cmd, T_arg)
-            T_max = min(T_max, self.max_new_cmds)
+        # Tuple batch parsing
+        input_ids = batch[0]
+        if len(batch) >= 4 and isinstance(batch[1], torch.Tensor) and batch[1].dim() == 3:
+            # (input_ids, cad_targets, attention_mask, extra_info)
+            cad_targets = batch[1]
+            attn_mask = batch[2] if isinstance(batch[2], torch.Tensor) else (input_ids != 0).long()
+            return _to_dev(input_ids), _to_dev(attn_mask), _to_dev(cad_targets), None
+        elif len(batch) >= 3 and isinstance(batch[1], torch.Tensor) and batch[1].dim() == 3:
+            # (input_ids, cad_targets, attention_mask)
+            cad_targets = batch[1]
+            attn_mask = batch[2] if isinstance(batch[2], torch.Tensor) and batch[2].dim() == 2 else (input_ids != 0).long()
+            return _to_dev(input_ids), _to_dev(attn_mask), _to_dev(cad_targets), None
+        elif len(batch) > 3 and isinstance(batch[3], torch.Tensor):
+            # (input_ids, cmd_targets, arg_targets, attention_mask, ...)
+            cmd_targets = batch[1]
+            arg_targets = batch[2]
+            attn_mask = batch[3]
+            return _to_dev(input_ids), _to_dev(attn_mask), _to_dev(cmd_targets), _to_dev(arg_targets)
 
-            # Pad cmd_targets to T_max
-            cmd_targets_padded = torch.full((B, T_max), self.model.pad_id, device=device, dtype=cmd_targets.dtype)
-            T_cmd_limit = min(T_cmd, T_max)
-            cmd_targets_padded[:, :T_cmd_limit] = cmd_targets[:, :T_cmd_limit]
-            
-            # Pad arg_targets to T_max
-            arg_targets_padded = torch.full((B, T_max), self.model.arg_pad_id, device=device, dtype=arg_targets.dtype)
-            T_arg_limit = min(T_arg, T_max)
-            arg_targets_padded[:, :T_arg_limit] = arg_targets[:, :T_arg_limit]
+        attn_mask = (input_ids != 0).long()
+        cad_targets = batch[1] if len(batch) > 1 else None
+        return _to_dev(input_ids), _to_dev(attn_mask), _to_dev(cad_targets), None
 
-            # Shift inputs for autoregressive decoder
-            cmd_sos = torch.full((B, 1), self.model.sos_id, device=device, dtype=cmd_targets.dtype)
-            decoder_input_ids = torch.cat([cmd_sos, cmd_targets_padded[:, :-1]], dim=1)
+    def forward(self, batch: Any, is_teacher_forcing: bool = True) -> Dict[str, Any]:
+        pad_id = END_TOKEN.index("PADDING")
+        input_ids, attn_mask, cad_targets, arg_targets = self.extract_inputs(batch)
+        
+        # Handle dict format
+        if isinstance(batch, dict) and "texts" in batch:
+            texts = batch["texts"]
+            if is_teacher_forcing:
+                out = self.model(texts=texts, decoder_input_ids=cad_targets)
+            else:
+                out = self.model.generate(texts=texts, max_new_tokens=self.max_new_cmds)
+        elif is_teacher_forcing:
+            out = self.model(input_ids=input_ids, attention_mask=attn_mask, decoder_input_ids=cad_targets)
+        else:
+            out = self.model.generate(input_ids=input_ids, attention_mask=attn_mask, max_new_tokens=self.max_new_cmds)
 
-            arg_sos = torch.full((B, 1), self.model.arg_sos_id, device=device, dtype=arg_targets.dtype)
-            decoder_input_args = torch.cat([arg_sos, arg_targets_padded[:, :-1]], dim=1)
+        if not is_teacher_forcing:
+            # Autoregressive rollout prediction
+            gen_cad = out[0] if isinstance(out, (tuple, list)) else out
+            if isinstance(gen_cad, torch.Tensor) and gen_cad.dim() == 4:
+                cmd_preds = torch.argmax(gen_cad[:, :, 0, :], dim=-1)
+                arg_preds = torch.argmax(gen_cad[:, :, 1, :], dim=-1)
+            elif isinstance(gen_cad, torch.Tensor) and gen_cad.dim() == 3:
+                cmd_preds = gen_cad[:, :, 0]
+                arg_preds = gen_cad[:, :, 1]
+            else:
+                cmd_preds = gen_cad
+                arg_preds = gen_cad
+                
+            return {
+                "pred": gen_cad,
+                "cmd_preds": cmd_preds,
+                "arg_preds": arg_preds,
+            }
 
-            seq_logits, _ = self.model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                decoder_input_ids=decoder_input_ids,
-                decoder_input_args=decoder_input_args,
-                encoder_out_embeddings=enc_out
-            )
-            
-            cmd_logits = seq_logits[:, 0]
-            arg_logits = seq_logits[:, 1]
-            
-            cmd_preds = cmd_logits.argmax(dim=-1)
-            arg_preds_unified = arg_logits.argmax(dim=-1)
-            arg_preds = torch.clamp(arg_preds_unified - self.vocab_size_cmd, min=0)
-            
-            return cmd_logits, arg_logits, cmd_preds, arg_preds
+        # Teacher forcing forward
+        if isinstance(out, tuple):
+            S_output = out[0]
+        else:
+            S_output = out
 
-        # Autoregressive generation
-        cmd_preds_seq = torch.full((B, 1), self.model.sos_id, device=device, dtype=torch.long)
-        arg_preds_seq = torch.full((B, 1), self.model.arg_sos_id, device=device, dtype=torch.long)
+        if cad_targets is not None:
+            if cad_targets.dim() == 3 and cad_targets.shape[1] == 2 and cad_targets.shape[2] != 2:
+                target = cad_targets.permute(0, 2, 1)[:, 1:, :].contiguous()
+            else:
+                target = cad_targets[:, 1:, :].contiguous()
+        else:
+            target = torch.zeros((S_output.shape[0], S_output.shape[1] - 1, 2), dtype=torch.long, device=S_output.device)
 
-        cmd_outs = []
-        arg_outs = []
-        cmd_pred_outs = []
-        arg_pred_outs = []
+        min_len = min(S_output.shape[1] - 1, target.shape[1])
+        pred = S_output[:, :min_len, :, :]
+        target = target[:, :min_len, :]
+        key_mask = (target[:, :, 0] != pad_id).float()
 
-        cmd_done = torch.zeros(B, dtype=torch.bool, device=device)
-        arg_done = torch.zeros(B, dtype=torch.bool, device=device)
-
-        for step in range(self.max_new_cmds):
-            if cmd_done.all() and arg_done.all():
-                break
-
-            seq_logits, _ = self.model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                decoder_input_ids=cmd_preds_seq,
-                decoder_input_args=arg_preds_seq,
-                encoder_out_embeddings=enc_out
-            )
-
-            next_cmd_logits = seq_logits[:, 0, -1:, :]
-            next_cmd_token = next_cmd_logits.argmax(dim=-1)
-            
-            next_arg_logits = seq_logits[:, 1, -1:, :]
-            next_arg_token_unified = next_arg_logits.argmax(dim=-1)
-            next_arg_token = torch.clamp(next_arg_token_unified - self.vocab_size_cmd, min=0)
-
-            next_cmd_token[cmd_done] = self.model.pad_id
-            next_arg_token[arg_done] = self.model.arg_pad_id
-
-            if step < self.max_new_cmds:
-                cmd_outs.append(next_cmd_logits)
-                cmd_pred_outs.append(next_cmd_token)
-                cmd_preds_seq = torch.cat([cmd_preds_seq, next_cmd_token], dim=1)
-                cmd_done |= (next_cmd_token.squeeze(-1) == self.model.eos_id)
-
-            if step < self.max_new_args:
-                arg_outs.append(next_arg_logits)
-                arg_pred_outs.append(next_arg_token)
-                arg_preds_seq = torch.cat([arg_preds_seq, next_arg_token], dim=1)
-                arg_done |= (next_arg_token.squeeze(-1) == self.model.arg_eos_id)
-
-        cmd_logits_out = torch.cat(cmd_outs, dim=1) if cmd_outs else torch.empty(0, device=device)
-        arg_logits_out = torch.cat(arg_outs, dim=1) if arg_outs else torch.empty(0, device=device)
-        cmd_preds_out = torch.cat(cmd_pred_outs, dim=1) if cmd_pred_outs else torch.empty(0, device=device, dtype=torch.long)
-        arg_preds_out = torch.cat(arg_pred_outs, dim=1) if arg_pred_outs else torch.empty(0, device=device, dtype=torch.long)
-
-        return cmd_logits_out, arg_logits_out, cmd_preds_out, arg_preds_out
+        loss_dict = {
+            "pred": pred,
+            "target": target,
+            "key_padding_mask": key_mask,
+            "cmd_preds": torch.argmax(pred[:, :, 0, :], dim=-1),
+            "arg_preds": torch.argmax(pred[:, :, 1, :], dim=-1),
+        }
+        return loss_dict
 
     @torch.no_grad()
-    def generate(self, input_text, max_new_tokens=50):
+    def generate(
+        self,
+        input_text: Union[str, List[str]],
+        max_new_tokens: int = 50,
+    ) -> Union[Optional[CADSequence], List[Optional[CADSequence]]]:
         self.model.eval()
-        device = next(self.model.parameters()).device
+        is_single = isinstance(input_text, str)
+        texts = [input_text] if is_single else input_text
         
-        max_len = self.text_tokenizer.model_max_length
-        if max_len is None:
-            max_len = 512
-        tokenized = self.text_tokenizer(input_text, truncation=True, max_length=max_len)
-        input_ids = torch.as_tensor(tokenized['input_ids'], dtype=torch.long).unsqueeze(0).to(device)
-        attention_mask = torch.ones_like(input_ids)
-        
-        _, _, cmd_preds, arg_preds = self.forward((input_ids, None, None, attention_mask), is_teacher_forcing=False)
-        
-        cmd_list = DualSeq.id_to_cmds(cmd_preds[0].cpu().numpy().tolist())
-        arg_tokens = arg_preds[0].cpu().numpy().tolist()
-        
-        try:
-            cmd_eos_idx = cmd_list.index("EOS")
-            cmd_list = cmd_list[:cmd_eos_idx]
-        except ValueError:
-            pass
-        
-        try:
-            arg_eos_idx = arg_tokens.index(self.model.arg_eos_id)
-            arg_tokens = arg_tokens[:arg_eos_idx]
-        except ValueError:
-            pass
-            
-        instance = DualSeq.from_sequences(cmd_list, arg_tokens)
-        return list(zip(instance.cmds, instance.args_dict))
+        if hasattr(self.model, "test_decode"):
+            S_output = self.model.test_decode(
+                texts=texts,
+                maxlen=max_new_tokens,
+                nucleus_prob=0.0,
+                topk_index=1,
+                device=self.device,
+            )
+        else:
+            S_output = self.model.generate(texts=texts, max_new_tokens=max_new_tokens)
 
-    def save(self, folder_path):
-        os.makedirs(folder_path, exist_ok=True)
-        if hasattr(self.model, "encoder") and self.model.encoder is not None:
-            torch.save(self.model.encoder.state_dict(), os.path.join(folder_path, "encoder.pt"))
-        if hasattr(self.model, "adaptive_layer") and self.model.adaptive_layer is not None:
-            torch.save(self.model.adaptive_layer.state_dict(), os.path.join(folder_path, "adaptive_layer.pt"))
-        torch.save(self.model.state_dict(), os.path.join(folder_path, "checkpoint.pt"))
-        
-    def train(self, mode=True):
-        self.model.train(mode)
-        
-    def eval(self):
-        self.model.eval()
-        
-    def to(self, device):
-        self.model = self.model.to(device)
-        self.device = device
-        return self
-    
-    def half(self):
-        self.model.half()
-        return self
+        if isinstance(S_output, dict) and "cad_vec" in S_output:
+            S_output = S_output["cad_vec"]
 
-    def parameters(self):
-        return self.model.parameters()
+        results = []
+        for i in range(S_output.shape[0]):
+            cad_vec = S_output[i].detach().cpu()
+            cad_seq = vec_2t_to_cadseq(cad_vec)
+            results.append(cad_seq)
+
+        if is_single:
+            return results[0]
+        return results
+
+    def infer(self, input_text: str, max_new_tokens: int = 50) -> Optional[CADSequence]:
+        return self.generate(input_text, max_new_tokens=max_new_tokens)
+
+    def infer_batch(self, input_texts: List[str], batch_size: int = 32, max_new_tokens: int = 50) -> List[Optional[CADSequence]]:
+        results = []
+        for i in range(0, len(input_texts), batch_size):
+            chunk = input_texts[i : i + batch_size]
+            res = self.generate(chunk, max_new_tokens=max_new_tokens)
+            if isinstance(res, list):
+                results.extend(res)
+            else:
+                results.append(res)
+        return results

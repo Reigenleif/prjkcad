@@ -22,7 +22,16 @@ class EightBitBinarizedArgsWrapper(BaseWrapper):
         metadata: Optional[DualSeqMetadata] = None
     ):
         super().__init__(model, text_tokenizer, device)
+        self.out_type = "EightBitBinarizedArgs"
         self.metadata = metadata
+
+        cmd_to_id = self.schema["command_to_id"]
+        cmd_to_slice = self.schema["command_to_slice"]
+        slot_mask = torch.zeros(self.schema["cmd_n_tokens"], 31, dtype=torch.bool)
+        for cmd_name, (start, end) in cmd_to_slice.items():
+            if cmd_name in cmd_to_id and end > start:
+                slot_mask[cmd_to_id[cmd_name], start:end] = True
+        self.register_buffer("slot_mask", slot_mask)
 
     def forward(
         self,
@@ -37,7 +46,8 @@ class EightBitBinarizedArgsWrapper(BaseWrapper):
         # <-- Teacher Forcing vs Autoregressive Branching -->
         if is_teacher_forcing:
             return self._teacher_forcing_forward(input_ids, attention_mask, cmd_targets, arg_targets, B, device)
-        return self._autoregressive_forward(input_ids, attention_mask, B, device)
+        _, _, enc_out = self.model(input_ids=input_ids, attention_mask=attention_mask)
+        return self._autoregressive_forward(input_ids, attention_mask, enc_out, B, device)
 
     def _teacher_forcing_forward(self, input_ids, attention_mask, cmd_targets, arg_targets, B, device) -> Dict[str, torch.Tensor]:
         # <-- Build Shifted Decoder Targets -->
@@ -63,7 +73,7 @@ class EightBitBinarizedArgsWrapper(BaseWrapper):
             "arg_preds": arg_logits.argmax(dim=-1),
         }
 
-    def _autoregressive_forward(self, input_ids, attention_mask, B, device) -> Dict[str, torch.Tensor]:
+    def _autoregressive_forward(self, input_ids, attention_mask, enc_out, B, device) -> Dict[str, torch.Tensor]:
         # <-- Decoding Setup -->
         cmd_preds_seq = torch.full((B, 1), self.model.sos_id, device=device, dtype=torch.long)
         arg_preds_seq = torch.full((B, 1, 31), self.model.arg_sos_id, device=device, dtype=torch.long)
@@ -72,7 +82,8 @@ class EightBitBinarizedArgsWrapper(BaseWrapper):
         cmd_done = torch.zeros(B, dtype=torch.bool, device=device)
 
         # <-- Iterative Loop -->
-        for _ in range(self.max_new_cmds):
+        max_steps = min(60, self.max_new_cmds)
+        for _ in range(max_steps):
             if cmd_done.all():
                 break
 
@@ -80,12 +91,16 @@ class EightBitBinarizedArgsWrapper(BaseWrapper):
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 decoder_input_ids=cmd_preds_seq,
-                decoder_input_args=arg_preds_seq
+                decoder_input_args=arg_preds_seq,
+                encoder_out_embeddings=enc_out,
             )
             next_cmd_logits = cmd_logits[:, -1:, :]
             next_cmd_token = next_cmd_logits.argmax(dim=-1)
             next_arg_logits = arg_logits[:, -1:, :, :]
             next_arg_token = next_arg_logits.argmax(dim=-1)
+
+            active_slots = self.slot_mask.to(device)[next_cmd_token.squeeze(-1)].unsqueeze(1)
+            next_arg_token = torch.where(active_slots, next_arg_token, torch.full_like(next_arg_token, self.model.arg_pad_id))
 
             next_cmd_token[cmd_done] = self.model.pad_id
             next_arg_token[cmd_done.unsqueeze(1).unsqueeze(2).expand(-1, 1, 31)] = self.model.arg_pad_id
@@ -112,15 +127,19 @@ class EightBitBinarizedArgsWrapper(BaseWrapper):
         # <-- Evaluation Mode & Tokenization -->
         self.model.eval()
         input_ids, attention_mask = self.tokenize_input(input_text)
-        device = input_ids.device
-
-        # <-- Generation Forward Pass -->
         out_dict = self.forward({"input_ids": input_ids, "attention_mask": attention_mask}, is_teacher_forcing=False)
         cmd_tokens = out_dict["cmd_preds"][0].cpu().numpy().tolist()
         arg_bins = out_dict["arg_preds"][0].cpu().numpy().tolist()
-
-        # <-- Convert Tokens to DualSeq -->
         return self._tokens_to_dualseq(cmd_tokens, arg_bins)
+
+    @torch.no_grad()
+    def generate_batch(self, input_texts: List[str], max_new_tokens: int = 50) -> List[DualSeq]:
+        self.model.eval()
+        input_ids, attention_mask = self.tokenize_batch(input_texts)
+        out_dict = self.forward({"input_ids": input_ids, "attention_mask": attention_mask}, is_teacher_forcing=False)
+        cmd_tokens_batch = out_dict["cmd_preds"].cpu().numpy().tolist()
+        arg_bins_batch = out_dict["arg_preds"].cpu().numpy().tolist()
+        return [self._tokens_to_dualseq(c, a) for c, a in zip(cmd_tokens_batch, arg_bins_batch)]
 
     def _tokens_to_dualseq(self, cmd_tokens: List[int], arg_bins: List[List[int]]) -> DualSeq:
         # <-- Decode Tokens to DualSeq Datastructure -->
@@ -136,7 +155,6 @@ class EightBitBinarizedArgsWrapper(BaseWrapper):
             cmd_str = id_to_command.get(cmd_id)
             if not cmd_str or cmd_str in ("SOS", "EOS", "PAD"):
                 continue
-
             cmds.append(cmd_str)
             arg_dict = {}
             if cmd_str in command_to_slice:
@@ -151,6 +169,12 @@ class EightBitBinarizedArgsWrapper(BaseWrapper):
         return DualSeq(cmds=cmds, args=args)
 
     def infer(self, input_text: str, max_new_tokens: int = 50) -> DualSeq:
-        # <-- DualSeq Output Generation -->
         return self.generate(input_text, max_new_tokens=max_new_tokens)
+
+    def infer_batch(self, input_texts: List[str], batch_size: int = 32, max_new_tokens: int = 50) -> List[DualSeq]:
+        results = []
+        for i in range(0, len(input_texts), batch_size):
+            chunk = input_texts[i : i + batch_size]
+            results.extend(self.generate_batch(chunk, max_new_tokens=max_new_tokens))
+        return results
 

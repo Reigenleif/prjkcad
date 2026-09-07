@@ -27,7 +27,8 @@ class FloatArgsWrapper(BaseWrapper):
             return self._teacher_forcing_step(input_ids, attention_mask, cmd_targets, arg_targets, B, device)
 
         # <-- Autoregressive Generation Execution -->
-        return self._autoregressive_step(input_ids, attention_mask, arg_targets, B, device)
+        _, _, enc_out = self.model(input_ids=input_ids, attention_mask=attention_mask)
+        return self._autoregressive_step(input_ids, attention_mask, enc_out, arg_targets, B, device)
 
     def _teacher_forcing_step(self, input_ids, attention_mask, cmd_targets, arg_targets, B, device) -> Dict[str, torch.Tensor]:
         # <-- Decoder Inputs Construction -->
@@ -53,7 +54,7 @@ class FloatArgsWrapper(BaseWrapper):
         cmd_preds = cmd_logits.argmax(dim=-1)
         return {"cmd_logits": cmd_logits, "arg_preds": arg_preds, "cmd_preds": cmd_preds}
 
-    def _autoregressive_step(self, input_ids, attention_mask, arg_targets, B, device) -> Dict[str, torch.Tensor]:
+    def _autoregressive_step(self, input_ids, attention_mask, enc_out, arg_targets, B, device) -> Dict[str, torch.Tensor]:
         # <-- Autoregressive Loop Setup -->
         preds = torch.full((B, 1), self.model.sos_id, device=device, dtype=torch.long)
         n_args = arg_targets.size(-1) if (arg_targets is not None and arg_targets.ndim == 3) else 31
@@ -67,11 +68,15 @@ class FloatArgsWrapper(BaseWrapper):
                 input_ids=input_ids,
                 attention_mask=attention_mask,
                 decoder_input_ids=preds,
-                decoder_input_args=pred_args
+                decoder_input_args=pred_args,
+                encoder_out_embeddings=enc_out,
             )
             next_cmd_logits = cmd_logits[:, -1:, :]
             next_cmd_token = next_cmd_logits.argmax(dim=-1)
             next_args = arg_preds_step[:, -1:, :]
+
+            active_slots = self.slot_mask.to(device)[next_cmd_token.squeeze(-1)].unsqueeze(1)
+            next_args = torch.where(active_slots, next_args, torch.zeros_like(next_args))
 
             cmd_outs.append(next_cmd_logits)
             cmd_pred_outs.append(next_cmd_token)
@@ -95,42 +100,19 @@ class FloatArgsWrapper(BaseWrapper):
         # <-- Evaluation Mode Guard -->
         self.model.eval()
         input_ids, attention_mask = self.tokenize_input(input_text)
-        device = input_ids.device
+        out_dict = self.forward({"input_ids": input_ids, "attention_mask": attention_mask}, is_teacher_forcing=False)
+        cmd_tokens = out_dict["cmd_preds"][0].cpu().numpy().tolist()
+        arg_preds = out_dict["arg_preds"][0].cpu().numpy().tolist()
+        return self._build_sequence_output(cmd_tokens, arg_preds)
 
-        cmd_preds, arg_preds = self._autoregressive_decode(input_ids, attention_mask, device, max_new_tokens)
-        return self._build_sequence_output(cmd_preds, arg_preds)
-
-    def _autoregressive_decode(self, input_ids, attention_mask, device, max_new_tokens) -> Tuple[List[int], List[List[float]]]:
-        # <-- Loop Initialization -->
-        sos_id = self.dual_seq_schema["sos_id"]
-        eos_id = self.dual_seq_schema["eos_id"]
-        decoder_input_ids = torch.full((1, 1), sos_id, device=device, dtype=torch.long)
-        decoder_input_args = torch.zeros((1, 1, 31), device=device, dtype=torch.float32)
-
-        cmd_preds, arg_preds = [], []
-
-        # <-- Decoding Steps -->
-        for _ in range(max_new_tokens):
-            cmd_logits, arg_preds_out, _ = self.model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                decoder_input_ids=decoder_input_ids,
-                decoder_input_args=decoder_input_args
-            )
-            next_cmd_token = cmd_logits[:, -1:, :].argmax(dim=-1)
-            next_args = arg_preds_out[:, -1:, :]
-
-            decoder_input_ids = torch.cat([decoder_input_ids, next_cmd_token], dim=1)
-            decoder_input_args = torch.cat([decoder_input_args, next_args], dim=1)
-
-            cmd_val = next_cmd_token.item()
-            cmd_preds.append(cmd_val)
-            arg_preds.append(next_args.squeeze().tolist())
-
-            if cmd_val == eos_id:
-                break
-
-        return cmd_preds, arg_preds
+    @torch.no_grad()
+    def generate_batch(self, input_texts: List[str], max_new_tokens: int = 50) -> List[DualSeq]:
+        self.model.eval()
+        input_ids, attention_mask = self.tokenize_batch(input_texts)
+        out_dict = self.forward({"input_ids": input_ids, "attention_mask": attention_mask}, is_teacher_forcing=False)
+        cmd_tokens_batch = out_dict["cmd_preds"].cpu().numpy().tolist()
+        arg_preds_batch = out_dict["arg_preds"].cpu().numpy().tolist()
+        return [DualSeq(cmd_args_tuples=self._build_sequence_output(c, a)) for c, a in zip(cmd_tokens_batch, arg_preds_batch)]
 
     def _build_sequence_output(self, cmd_preds: List[int], arg_preds: List[List[float]]) -> List[Tuple[str, Dict[str, float]]]:
         # <-- Sequence Reconstruction -->
@@ -162,4 +144,11 @@ class FloatArgsWrapper(BaseWrapper):
         # <-- DualSeq Output Generation -->
         cmd_args_tuples = self.generate(input_text, max_new_tokens=max_new_tokens)
         return DualSeq(cmd_args_tuples=cmd_args_tuples)
+
+    def infer_batch(self, input_texts: List[str], batch_size: int = 32, max_new_tokens: int = 50) -> List[DualSeq]:
+        results = []
+        for i in range(0, len(input_texts), batch_size):
+            chunk = input_texts[i : i + batch_size]
+            results.extend(self.generate_batch(chunk, max_new_tokens=max_new_tokens))
+        return results
 

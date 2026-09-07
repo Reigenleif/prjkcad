@@ -65,8 +65,9 @@ class TokenizedOneSequenceArgsWrapper(BaseWrapper):
         cmd_done, arg_done = torch.zeros(B, dtype=torch.bool, device=device), torch.zeros(B, dtype=torch.bool, device=device)
 
         # <-- Generation Steps -->
-        for step in range(max(self.max_new_cmds, self.max_new_args)):
-            if cmd_done.all() and arg_done.all():
+        max_steps = min(60, max(self.max_new_cmds, self.max_new_args))
+        for step in range(max_steps):
+            if cmd_done.all():
                 break
 
             cmd_logits, arg_logits, _ = self.model(
@@ -125,7 +126,36 @@ class TokenizedOneSequenceArgsWrapper(BaseWrapper):
             args.append({})
         return DualSeq(cmds=cmds, args=args)
 
+    @torch.no_grad()
+    def generate_batch(self, input_texts: List[str], max_new_tokens: int = 50) -> List[DualSeq]:
+        self.model.eval()
+        input_ids, attention_mask = self.tokenize_batch(input_texts)
+        out_dict = self.forward({"input_ids": input_ids, "attention_mask": attention_mask}, is_teacher_forcing=False)
+        cmd_tokens_batch = out_dict["cmd_preds"].cpu().numpy().tolist() if "cmd_preds" in out_dict else []
+
+        id_to_command = {v: k for k, v in self.schema["command_to_id"].items()}
+        eos_id = self.schema["cmd_eos_id"]
+        results = []
+        for cmd_tokens in cmd_tokens_batch:
+            cmds, args = [], []
+            for cmd_id in cmd_tokens:
+                if cmd_id == eos_id:
+                    break
+                cmd_str = id_to_command.get(cmd_id)
+                if not cmd_str or cmd_str in ("SOS", "EOS", "PAD"):
+                    continue
+                cmds.append(cmd_str)
+                args.append({})
+            results.append(DualSeq(cmds=cmds, args=args))
+        return results
+
     def infer(self, input_text: str, max_new_tokens: int = 50) -> DualSeq:
-        # <-- DualSeq Output Generation -->
         return self.generate(input_text, max_new_tokens=max_new_tokens)
+
+    def infer_batch(self, input_texts: List[str], batch_size: int = 32, max_new_tokens: int = 50) -> List[DualSeq]:
+        results = []
+        for i in range(0, len(input_texts), batch_size):
+            chunk = input_texts[i : i + batch_size]
+            results.extend(self.generate_batch(chunk, max_new_tokens=max_new_tokens))
+        return results
 
