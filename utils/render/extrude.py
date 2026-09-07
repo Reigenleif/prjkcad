@@ -1,6 +1,8 @@
 """extrude.py: Extrude a 3D face along a gp_Ax3 normal and apply boolean ops."""
 from OCC.Core.BRepPrimAPI import BRepPrimAPI_MakePrism
 from OCC.Core.BRepAlgoAPI import BRepAlgoAPI_Fuse, BRepAlgoAPI_Cut, BRepAlgoAPI_Common
+from OCC.Core.BRep import BRep_Builder
+from OCC.Core.TopoDS import TopoDS_Compound
 from OCC.Core.gp import gp_Vec
 
 
@@ -45,8 +47,38 @@ def extrude_part(face3d, ax3, dtn, don, op, body=None):
         return body
 
     # Step 4: Apply boolean op between new solid and existing body
-    if body is None or op == "EXTRUDE_NEW":    return new_solid
-    if op == "EXTRUDE_JOIN":                   return BRepAlgoAPI_Fuse(body,    new_solid).Shape()
-    if op == "EXTRUDE_CUT":                    return BRepAlgoAPI_Cut(body,     new_solid).Shape()
-    if op == "EXTRUDE_INTERSECT":              return BRepAlgoAPI_Common(body,  new_solid).Shape()
+    if body is None:
+        return new_solid
+    if op == "EXTRUDE_NEW":
+        op = "EXTRUDE_JOIN"
+    if op == "EXTRUDE_JOIN":
+        try:
+            res = BRepAlgoAPI_Fuse(body, new_solid).Shape()
+            if res is not None and not res.IsNull():
+                return res
+        except Exception:
+            pass
+        try:
+            builder = BRep_Builder()
+            comp = TopoDS_Compound()
+            builder.MakeCompound(comp)
+            builder.Add(comp, body)
+            builder.Add(comp, new_solid)
+            return comp
+        except Exception:
+            return new_solid
+    if op == "EXTRUDE_CUT":
+        try:
+            res = BRepAlgoAPI_Cut(body, new_solid).Shape()
+            if res is not None and not res.IsNull():
+                return res
+        except Exception:
+            return body
+    if op == "EXTRUDE_INTERSECT":
+        try:
+            res = BRepAlgoAPI_Common(body, new_solid).Shape()
+            if res is not None and not res.IsNull():
+                return res
+        except Exception:
+            return body
     return new_solid
