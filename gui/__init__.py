@@ -1,3 +1,4 @@
-from gui.app import build_app
+from gui.backend.main import app
 
-__all__ = ["build_app"]
+__all__ = ["app"]
+

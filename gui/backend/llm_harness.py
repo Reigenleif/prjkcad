@@ -514,7 +514,6 @@ def repair_dualseq_sequence(tuple_list: List[Tuple[str, Dict[str, float]]]) -> L
         ]
 
     repaired = []
-    # 1. Guarantee starts with COOR
     if tuple_list[0][0] != "COOR":
         repaired.append(("COOR", {"coor_euax": 0.0, "coor_euay": 0.0, "coor_euaz": 0.0, "coor_tx": 0.0, "coor_ty": 0.0, "coor_tz": 0.0}))
 
@@ -552,13 +551,11 @@ def repair_dualseq_sequence(tuple_list: List[Tuple[str, Dict[str, float]]]) -> L
                 loop_lines.append(clean_args)
             repaired.append((cmd, clean_args))
         elif cmd.startswith("EXTRUDE_"):
-            # Check if previous loop was unclosed lines
             if loop_lines and len(loop_lines) >= 2:
                 first_start = (loop_lines[0]["line_sx"], loop_lines[0]["line_sy"])
                 last_end = (loop_lines[-1]["line_ex"], loop_lines[-1]["line_ey"])
                 dist_sq = (first_start[0] - last_end[0]) ** 2 + (first_start[1] - last_end[1]) ** 2
                 if dist_sq > 1e-4:
-                    # Append a closing line segment
                     repaired.append((
                         "LINE",
                         {
@@ -573,7 +570,6 @@ def repair_dualseq_sequence(tuple_list: List[Tuple[str, Dict[str, float]]]) -> L
             in_loop = False
             repaired.append((cmd, clean_args))
 
-    # Guarantee ends with an EXTRUDE command
     if not any(c.startswith("EXTRUDE_") for c, _ in repaired):
         if loop_lines and len(loop_lines) >= 2:
             first_start = (loop_lines[0]["line_sx"], loop_lines[0]["line_sy"])
@@ -604,7 +600,6 @@ def extract_thought_and_dualseq(
     error_msg = None
     tuple_list: List[Tuple[str, Dict[str, float]]] = []
 
-    # 1. Extract thought content
     thought_match = re.search(r"<(?:thought|think)>(.*?)</(?:thought|think)>", raw_text, re.DOTALL | re.IGNORECASE)
     if thought_match:
         thought = thought_match.group(1).strip()
@@ -618,7 +613,6 @@ def extract_thought_and_dualseq(
                     thought = potential
                     break
 
-    # 2. Extract code block or array string
     code_block_match = re.search(r"```(?:json|python)?\s*(\[.*?\]|\{.*?\})\s*```", raw_text, re.DOTALL)
     candidates = []
     if code_block_match:
@@ -634,7 +628,6 @@ def extract_thought_and_dualseq(
     if start_brace != -1 and end_brace > start_brace:
         candidates.append(raw_text[start_brace : end_brace + 1].strip())
 
-    # 3. Parse candidate strings
     parsed_obj = None
     for cand in candidates:
         cand_clean = cand.strip()
@@ -651,7 +644,6 @@ def extract_thought_and_dualseq(
         except Exception:
             pass
 
-    # 4. Standardize parsed object to List[Tuple[str, Dict[str, float]]]
     if isinstance(parsed_obj, list):
         for item in parsed_obj:
             if isinstance(item, (list, tuple)) and len(item) == 2:
@@ -671,7 +663,6 @@ def extract_thought_and_dualseq(
                 if cmd in DEFAULT_COMMANDS:
                     tuple_list.append((cmd, cleaned_args))
 
-    # 5. Check if the parsed sequence matches the requested shape primitive
     combined_text = (user_prompt + " " + thought).lower()
 
     def _extract_num(pattern: str, text: str, default: float) -> float:
@@ -889,8 +880,6 @@ def extract_thought_and_dualseq(
         ]
         thought = thought or f"1. Shape: Box prism.\n2. Profile: Rectangle {length} x {width}.\n3. Extrusion: Depth {height}."
 
-
-    # 6. Clean, validate, and topologically repair sequence
     tuple_list = repair_dualseq_sequence(tuple_list)
 
     return thought, tuple_list, error_msg
@@ -977,14 +966,12 @@ class DualSeqLLMHarness:
             messages.append({"role": "user", "content": user_prompt})
             return messages
 
-        # Find the latest DualSeq sequence in the history to retain as current state
         latest_dualseq_str = None
         for msg in reversed(chat_history):
             if msg.get("role") == "assistant" and msg.get("dualseq_tuples"):
                 latest_dualseq_str = json.dumps(msg["dualseq_tuples"])
                 break
 
-        # Include all history messages with their thinking processes
         for msg in chat_history:
             role = msg.get("role", "user")
             if role == "user":
@@ -996,7 +983,6 @@ class DualSeqLLMHarness:
                     parts.append(f"<thought>\n{thought}\n</thought>")
 
                 content = msg.get("content", "")
-                # Exclude previous revisions of DualSeq JSON blocks from earlier turns
                 cleaned_content = re.sub(r"```json[\s\S]*?```", "", content).strip()
                 if cleaned_content:
                     parts.append(cleaned_content)

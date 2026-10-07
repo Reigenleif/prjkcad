@@ -2,25 +2,40 @@ import os
 import struct
 from typing import Any, Dict, List, Optional, Tuple, Union
 
-from OCC.Core.StlAPI import StlAPI_Writer
-from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
-from OCC.Core.Bnd import Bnd_Box
-from OCC.Core.BRepBndLib import brepbndlib
-from OCC.Core.GProp import GProp_GProps
-from OCC.Core.BRepGProp import brepgprop
+try:
+    from OCC.Core.StlAPI import StlAPI_Writer
+    from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
+    from OCC.Core.Bnd import Bnd_Box
+    from OCC.Core.BRepBndLib import brepbndlib
+    from OCC.Core.GProp import GProp_GProps
+    from OCC.Core.BRepGProp import brepgprop
+    OCC_AVAILABLE = True
+except (ImportError, Exception):
+    OCC_AVAILABLE = False
+    StlAPI_Writer = None
+    BRepMesh_IncrementalMesh = None
+    Bnd_Box = None
+    brepbndlib = None
+    GProp_GProps = None
+    brepgprop = None
 
 from utils.representations.dual_seq.dual_seq import DualSeq
 from utils.representations.converter import dualseq_to_minimal_json
-from utils.render import render_dual_seq_to_shape, render_to_image
-from gui.server.llm_harness import normalize_command_args, repair_dualseq_sequence
+try:
+    from utils.render import render_dual_seq_to_shape, render_to_image
+except (ImportError, Exception):
+    render_dual_seq_to_shape = None
+    render_to_image = None
+from gui.backend.llm_harness import normalize_command_args, repair_dualseq_sequence
 
 DEFAULT_STL_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "renders")
 os.makedirs(DEFAULT_STL_DIR, exist_ok=True)
 
 
 def export_shape_to_stl(shape, stl_path: str, deflection: float = 0.05) -> bool:
-    if shape is None or shape.IsNull():
+    if not OCC_AVAILABLE or shape is None or (hasattr(shape, "IsNull") and shape.IsNull()):
         return False
+
     try:
         mesh = BRepMesh_IncrementalMesh(shape, deflection)
         mesh.Perform()
@@ -225,18 +240,22 @@ def render_and_export_dualseq(
     render_success = False
     error_message = None
 
-    try:
-        shape = render_dual_seq_to_shape(ds)
-        if shape is not None and not shape.IsNull():
-            render_success = export_shape_to_stl(shape, stl_filepath)
-            try:
-                render_to_image(shape, png_filepath)
-            except Exception:
-                pass
-        else:
-            error_message = "OpenCASCADE could not construct a valid solid from this sequence."
-    except Exception as e:
-        error_message = str(e)
+    if OCC_AVAILABLE and render_dual_seq_to_shape is not None:
+        try:
+            shape = render_dual_seq_to_shape(ds)
+            if shape is not None and not shape.IsNull():
+                render_success = export_shape_to_stl(shape, stl_filepath)
+                try:
+                    if render_to_image is not None:
+                        render_to_image(shape, png_filepath)
+                except Exception:
+                    pass
+            else:
+                error_message = "OpenCASCADE could not construct a valid solid from this sequence."
+        except Exception as e:
+            error_message = str(e)
+    else:
+        error_message = "OpenCASCADE (pythonocc-core) is not available in cloud environment. DualSeq and tree data generated."
 
     props = get_shape_properties(shape) if render_success else {"volume": 0.0, "bbox": {"min": [0, 0, 0], "max": [0, 0, 0]}}
 

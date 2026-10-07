@@ -12,10 +12,17 @@ import struct
 import uuid
 from typing import Dict, Any, Optional, Tuple, List
 
-from OCC.Core.StlAPI import StlAPI_Writer
-from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
+try:
+    from OCC.Core.StlAPI import StlAPI_Writer
+    from OCC.Core.BRepMesh import BRepMesh_IncrementalMesh
+    from utils.render import render_dual_seq_to_shape, render_to_image, render_model_comparison_grid
+except (ImportError, Exception):
+    StlAPI_Writer = None
+    BRepMesh_IncrementalMesh = None
+    render_dual_seq_to_shape = None
+    render_to_image = None
+    render_model_comparison_grid = None
 
-from utils.render import render_dual_seq_to_shape, render_to_image, render_model_comparison_grid
 from utils.representations.dual_seq.dual_seq import DualSeq
 
 MODEL_FOLDERS = {
