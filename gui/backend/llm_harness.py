@@ -8,9 +8,33 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer, TextIteratorStreamer
 
-from utils.representations.dual_seq.schema import DEFAULT_COMMANDS
-from utils.representations.dual_seq.dual_seq import DualSeq
-from utils.evaluate.correction import correct_output_commands_and_args
+try:
+    from utils.representations.dual_seq.schema import DEFAULT_COMMANDS
+    from utils.representations.dual_seq.dual_seq import DualSeq
+except (ImportError, Exception):
+    DEFAULT_COMMANDS = {
+        "COOR": ["coor_euax", "coor_euay", "coor_euaz", "coor_tx", "coor_ty", "coor_tz"],
+        "FACE": [],
+        "LOOP": [],
+        "LINE": ["line_sx", "line_sy", "line_ex", "line_ey"],
+        "CIRCLE": ["circle_cx", "circle_cy", "circle_r"],
+        "ARC": ["arc_sx", "arc_sy", "arc_mx", "arc_my", "arc_ex", "arc_ey"],
+        "EXTRUDE_NEW": ["extrude_new_dtn", "extrude_new_don", "extrude_new_scale"],
+        "EXTRUDE_JOIN": ["extrude_join_dtn", "extrude_join_don", "extrude_join_scale"],
+        "EXTRUDE_CUT": ["extrude_cut_dtn", "extrude_cut_don", "extrude_cut_scale"],
+        "EXTRUDE_INTERSECT": ["extrude_intersect_dtn", "extrude_intersect_don", "extrude_intersect_scale"],
+        "EXTRUDE_THREAD": ["extrude_thread_dtn", "extrude_thread_don", "extrude_thread_scale", "extrude_thread_pitch", "extrude_thread_depth"],
+        "EXTRUDE_THREADS": ["extrude_threads_dtn", "extrude_threads_don", "extrude_threads_scale", "extrude_threads_pitch", "extrude_threads_depth"],
+        "EXTRUDE_THREAD_CUT": ["extrude_thread_cut_dtn", "extrude_thread_cut_don", "extrude_thread_cut_scale", "extrude_thread_cut_pitch", "extrude_thread_cut_depth"],
+    }
+    DualSeq = None
+
+try:
+    from utils.evaluate.correction import correct_output_commands_and_args
+except (ImportError, Exception):
+    def correct_output_commands_and_args(cmds, args):
+        return cmds, args
+
 
 LOCAL_LLAMA_PATH = "/home/alief/.cache/huggingface/hub/models--meta-llama--Llama-3.2-1B-Instruct/snapshots/9213176726f574b556790deb65791e0c5aa438b6"
 DEFAULT_MODEL_ID = LOCAL_LLAMA_PATH if os.path.exists(LOCAL_LLAMA_PATH) else "meta-llama/Llama-3.2-1B-Instruct"

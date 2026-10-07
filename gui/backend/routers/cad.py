@@ -3,9 +3,17 @@ import uuid
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse, JSONResponse
 
-from utils.representations.dual_seq.dual_seq import DualSeq
-from gui.backend.schemas import RenderRequest, RenderResponse, ExportRequest
-from gui.backend.cad_engine import render_and_export_dualseq, DEFAULT_STL_DIR
+try:
+    from gui.backend.schemas import RenderRequest, RenderResponse, ExportRequest
+    from gui.backend.cad_engine import render_and_export_dualseq, DEFAULT_STL_DIR
+except ImportError:
+    from schemas import RenderRequest, RenderResponse, ExportRequest
+    from cad_engine import render_and_export_dualseq, DEFAULT_STL_DIR
+
+try:
+    from utils.representations.dual_seq.dual_seq import DualSeq
+except (ImportError, Exception):
+    DualSeq = None
 
 router = APIRouter(prefix="/api", tags=["cad"])
 
@@ -40,14 +48,21 @@ def export_cad(request: ExportRequest):
     cmds = [str(item[0]) for item in tuples if isinstance(item, (list, tuple)) and len(item) == 2]
     args = [item[1] if isinstance(item[1], dict) else {} for item in tuples if isinstance(item, (list, tuple)) and len(item) == 2]
 
-    ds = DualSeq(cmds=cmds, args=args, uid=request.filename)
+    if DualSeq is not None:
+        try:
+            ds = DualSeq(cmds=cmds, args=args, uid=request.filename)
+            minimal_json = ds.json_object
+        except Exception:
+            minimal_json = {"cmds": cmds, "args": args, "uid": request.filename}
+    else:
+        minimal_json = {"cmds": cmds, "args": args, "uid": request.filename}
 
     if request.format.lower() == "json":
         export_data = {
             "dualseq_tuples": tuples,
             "cmds": cmds,
             "args": args,
-            "minimal_json": ds.json_object,
+            "minimal_json": minimal_json,
         }
         return JSONResponse(content=export_data)
 

@@ -1,11 +1,12 @@
-from typing import Optional
-from gui.backend.llm_harness import DualSeqLLMHarness
-
-_harness: Optional[DualSeqLLMHarness] = None
+_harness = None
 
 
-def get_harness() -> DualSeqLLMHarness:
+def get_harness():
     global _harness
     if _harness is None:
-        _harness = DualSeqLLMHarness(lazy_load=True)
+        try:
+            from gui.backend.llm_harness import CADLLMHarness
+        except ImportError:
+            from llm_harness import CADLLMHarness
+        _harness = CADLLMHarness()
     return _harness

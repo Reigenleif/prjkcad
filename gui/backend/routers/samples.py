@@ -1,12 +1,32 @@
 import os
 import shutil
 from fastapi import APIRouter
-from gui.backend.cad_engine import parse_solidworks_part_tree, DEFAULT_STL_DIR
-from gui.model_runner import (
-    load_curated,
-    get_sample_metadata,
-    get_ground_truth_for_uid,
-)
+
+try:
+    from gui.backend.cad_engine import parse_solidworks_part_tree, DEFAULT_STL_DIR
+except ImportError:
+    from cad_engine import parse_solidworks_part_tree, DEFAULT_STL_DIR
+
+try:
+    from gui.model_runner import (
+        load_curated,
+        get_sample_metadata,
+        get_ground_truth_for_uid,
+    )
+except ImportError:
+    try:
+        from model_runner import (
+            load_curated,
+            get_sample_metadata,
+            get_ground_truth_for_uid,
+        )
+    except ImportError:
+        def load_curated():
+            return []
+        def get_sample_metadata(uid):
+            return {"uid": uid}
+        def get_ground_truth_for_uid(uid, split="test"):
+            return None, None, ""
 
 router = APIRouter(prefix="/api/samples", tags=["samples"])
 

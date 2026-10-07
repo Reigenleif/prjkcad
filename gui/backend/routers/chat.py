@@ -3,10 +3,16 @@ import uuid
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
-from gui.backend.deps import get_harness
-from gui.backend.schemas import ChatRequest, ChatResponse
-from gui.backend.cad_engine import render_and_export_dualseq
-from gui.backend.llm_harness import extract_thought_and_dualseq
+try:
+    from gui.backend.deps import get_harness
+    from gui.backend.schemas import ChatRequest, ChatResponse
+    from gui.backend.cad_engine import render_and_export_dualseq
+    from gui.backend.llm_harness import extract_thought_and_dualseq
+except ImportError:
+    from deps import get_harness
+    from schemas import ChatRequest, ChatResponse
+    from cad_engine import render_and_export_dualseq
+    from llm_harness import extract_thought_and_dualseq
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 

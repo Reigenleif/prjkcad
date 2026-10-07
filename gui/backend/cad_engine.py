@@ -19,14 +19,24 @@ except (ImportError, Exception):
     GProp_GProps = None
     brepgprop = None
 
-from utils.representations.dual_seq.dual_seq import DualSeq
-from utils.representations.converter import dualseq_to_minimal_json
+try:
+    from utils.representations.dual_seq.dual_seq import DualSeq
+    from utils.representations.converter import dualseq_to_minimal_json
+except (ImportError, Exception):
+    DualSeq = None
+    dualseq_to_minimal_json = None
+
 try:
     from utils.render import render_dual_seq_to_shape, render_to_image
 except (ImportError, Exception):
     render_dual_seq_to_shape = None
     render_to_image = None
-from gui.backend.llm_harness import normalize_command_args, repair_dualseq_sequence
+
+try:
+    from gui.backend.llm_harness import normalize_command_args, repair_dualseq_sequence
+except ImportError:
+    from llm_harness import normalize_command_args, repair_dualseq_sequence
+
 
 DEFAULT_STL_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "renders")
 os.makedirs(DEFAULT_STL_DIR, exist_ok=True)
