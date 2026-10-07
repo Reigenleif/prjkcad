@@ -1,0 +1,17 @@
+[project]
+name = "prjkcad-backend"
+version = "0.1.0"
+description = "Text2CAD Studio Backend API"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "pydantic",
+    "torch",
+    "transformers",
+    "trimesh",
+    "scipy",
+    "numpy",
+    "python-multipart",
+    "Pillow"
+]

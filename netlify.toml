@@ -1,0 +1,15 @@
+[build]
+  base = "gui/frontend"
+  publish = "dist"
+  command = "npm run build"
+
+[[redirects]]
+  from = "/api/*"
+  to = "https://prjkcad.fastapicloud.dev/api/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

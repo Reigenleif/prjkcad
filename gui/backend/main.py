@@ -6,16 +6,27 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-if PROJECT_ROOT not in sys.path:
-    sys.path.insert(0, PROJECT_ROOT)
+BACKEND_DIR = os.path.dirname(os.path.abspath(__file__))
+for p in [PROJECT_ROOT, BACKEND_DIR]:
+    if p not in sys.path:
+        sys.path.insert(0, p)
 
-from gui.backend.cad_engine import DEFAULT_STL_DIR
-from gui.backend.routers import (
-    health_router,
-    samples_router,
-    chat_router,
-    cad_router,
-)
+try:
+    from gui.backend.cad_engine import DEFAULT_STL_DIR
+    from gui.backend.routers import (
+        health_router,
+        samples_router,
+        chat_router,
+        cad_router,
+    )
+except ImportError:
+    from cad_engine import DEFAULT_STL_DIR
+    from routers import (
+        health_router,
+        samples_router,
+        chat_router,
+        cad_router,
+    )
 
 app = FastAPI(
     title="Text2CAD Studio API",
@@ -38,6 +49,15 @@ app.include_router(health_router)
 app.include_router(samples_router)
 app.include_router(chat_router)
 app.include_router(cad_router)
+
+@app.get("/")
+def root():
+    return {"message": "Text2CAD Studio API is running", "docs": "/docs"}
+
+@app.get("/health")
+def root_health():
+    return {"status": "online"}
+
 
 FRONTEND_DIST_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend", "dist")
 if os.path.isdir(FRONTEND_DIST_DIR):
