@@ -1,38 +1,14 @@
-import React, { useState, useEffect } from 'react';
-import { Box, Save, Download, FileText, RefreshCw, Cpu, Layers, HardDrive } from 'lucide-react';
-import { getCuratedSamples, exportCAD } from '../services/api';
+import React, { useState } from 'react';
+import { Box, Save, Download, FileText, Layers } from 'lucide-react';
+import { exportCAD } from '../services/api';
 
 export default function Navbar({
   systemHealth,
   dualseqTuples,
-  onSelectSample,
   onNewModel,
   onOpenEditor,
 }) {
-  const [samples, setSamples] = useState([]);
-  const [selectedSampleUid, setSelectedSampleUid] = useState('');
   const [exporting, setExporting] = useState(false);
-
-  useEffect(() => {
-    getCuratedSamples()
-      .then((data) => {
-        if (data && data.samples) {
-          setSamples(data.samples);
-          if (data.samples.length > 0) {
-            setSelectedSampleUid(data.samples[0].uid);
-          }
-        }
-      })
-      .catch((err) => console.error('Failed to load samples in navbar:', err));
-  }, []);
-
-  const handleSampleChange = (e) => {
-    const uid = e.target.value;
-    setSelectedSampleUid(uid);
-    if (onSelectSample) {
-      onSelectSample(uid);
-    }
-  };
 
   const handleExportSTL = async () => {
     if (!dualseqTuples || dualseqTuples.length === 0) return;
@@ -85,32 +61,6 @@ export default function Navbar({
           <Save size={13} />
           <span>Save JSON</span>
         </button>
-
-        {samples.length > 0 && (
-          <div style={{ display: 'flex', alignItems: 'center', marginLeft: 12, gap: 6 }}>
-            <span style={{ fontSize: 11, color: '#94a3b8' }}>Sample:</span>
-            <select
-              value={selectedSampleUid}
-              onChange={handleSampleChange}
-              style={{
-                background: '#1e293b',
-                color: '#f8fafc',
-                border: '1px solid #334155',
-                borderRadius: 4,
-                padding: '3px 8px',
-                fontSize: 11.5,
-                maxWidth: 220,
-                outline: 'none',
-              }}
-            >
-              {samples.map((s) => (
-                <option key={s.uid} value={s.uid}>
-                  {s.label || s.uid}
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
       </div>
 
       <div className="navbar-actions">

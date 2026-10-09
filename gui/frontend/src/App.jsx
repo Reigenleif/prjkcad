@@ -265,7 +265,6 @@ export default function App() {
       <Navbar
         systemHealth={systemHealth}
         dualseqTuples={dualseqTuples}
-        onSelectSample={handleSelectSample}
         onNewModel={handleNewModel}
         onOpenEditor={() => setShowEditorModal(true)}
       />
